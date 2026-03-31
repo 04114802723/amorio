@@ -9,6 +9,7 @@ declare module 'lucide-react' {
   
   export type Icon = FC<IconProps>;
   
+  // All icons used in the project
   export const SkipForward: Icon;
   export const UserPlus: Icon;
   export const Mic: Icon;
@@ -27,6 +28,7 @@ declare module 'lucide-react' {
   export const Users: Icon;
   export const Phone: Icon;
   export const ArrowRight: Icon;
+  export const ArrowLeft: Icon;
   export const Send: Icon;
   export const ChevronLeft: Icon;
   export const Search: Icon;
@@ -42,4 +44,31 @@ declare module 'lucide-react' {
   export const Github: Icon;
   export const Twitter: Icon;
   export const Instagram: Icon;
+  export const Coffee: Icon;
+  export const Brain: Icon;
+  export const Laugh: Icon;
+  export const Check: Icon;
+  export const AlertCircle: Icon;
+  export const Info: Icon;
+  export const User: Icon;
+  export const Home: Icon;
+  export const Clock: Icon;
+  export const Calendar: Icon;
+  export const Bell: Icon;
+  export const Eye: Icon;
+  export const EyeOff: Icon;
+  export const Copy: Icon;
+  export const Trash: Icon;
+  export const Edit: Icon;
+  export const Plus: Icon;
+  export const Minus: Icon;
+  export const RefreshCw: Icon;
+  export const ExternalLink: Icon;
+  export const Link: Icon;
+  export const Image: Icon;
+  export const Play: Icon;
+  export const Pause: Icon;
+  export const Volume: Icon;
+  export const Volume2: Icon;
+  export const VolumeX: Icon;
 }

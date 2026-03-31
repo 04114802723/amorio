@@ -5,9 +5,26 @@
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 -- ============================================
+-- DROP EXISTING OBJECTS (Clean slate)
+-- ============================================
+-- Drop tables first (CASCADE handles policies, indexes, constraints)
+DROP TABLE IF EXISTS call_rooms CASCADE;
+DROP TABLE IF EXISTS messages CASCADE;
+DROP TABLE IF EXISTS friendships CASCADE;
+DROP TABLE IF EXISTS profiles CASCADE;
+
+-- Drop functions
+DROP FUNCTION IF EXISTS create_friendship(UUID, UUID);
+DROP FUNCTION IF EXISTS get_friends(UUID);
+DROP FUNCTION IF EXISTS handle_new_user() CASCADE;
+
+-- Drop trigger
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+
+-- ============================================
 -- PROFILES TABLE
 -- ============================================
-CREATE TABLE IF NOT EXISTS profiles (
+CREATE TABLE profiles (
   id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
   email TEXT NOT NULL,
   display_name TEXT,
@@ -33,7 +50,6 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- Trigger for new user signup
-DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
 CREATE TRIGGER on_auth_user_created
   AFTER INSERT ON auth.users
   FOR EACH ROW EXECUTE FUNCTION handle_new_user();
@@ -41,10 +57,10 @@ CREATE TRIGGER on_auth_user_created
 -- ============================================
 -- FRIENDSHIPS TABLE (Mutual connections)
 -- ============================================
-CREATE TABLE IF NOT EXISTS friendships (
+CREATE TABLE friendships (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user1_id UUID REFERENCES profiles(id) ON DELETE CASCADE,
-  user2_id UUID REFERENCES profiles(id) ON DELETE CASCADE,
+  user1_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  user2_id UUID NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   -- Ensure user1_id < user2_id to prevent duplicates
   CONSTRAINT unique_friendship UNIQUE(user1_id, user2_id),
@@ -52,13 +68,13 @@ CREATE TABLE IF NOT EXISTS friendships (
 );
 
 -- Index for fast friend lookups
-CREATE INDEX IF NOT EXISTS idx_friendships_user1 ON friendships(user1_id);
-CREATE INDEX IF NOT EXISTS idx_friendships_user2 ON friendships(user2_id);
+CREATE INDEX idx_friendships_user1 ON friendships(user1_id);
+CREATE INDEX idx_friendships_user2 ON friendships(user2_id);
 
 -- ============================================
 -- MESSAGES TABLE
 -- ============================================
-CREATE TABLE IF NOT EXISTS messages (
+CREATE TABLE messages (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   friendship_id UUID REFERENCES friendships(id) ON DELETE CASCADE,
   sender_id UUID REFERENCES profiles(id) ON DELETE CASCADE,
@@ -68,12 +84,12 @@ CREATE TABLE IF NOT EXISTS messages (
 );
 
 -- Index for fast message retrieval
-CREATE INDEX IF NOT EXISTS idx_messages_friendship ON messages(friendship_id, created_at DESC);
+CREATE INDEX idx_messages_friendship ON messages(friendship_id, created_at DESC);
 
 -- ============================================
 -- CALL ROOMS TABLE (For friend video calls)
 -- ============================================
-CREATE TABLE IF NOT EXISTS call_rooms (
+CREATE TABLE call_rooms (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   friendship_id UUID REFERENCES friendships(id) ON DELETE CASCADE,
   created_by UUID REFERENCES profiles(id) ON DELETE CASCADE,
@@ -84,7 +100,7 @@ CREATE TABLE IF NOT EXISTS call_rooms (
 );
 
 -- Index for active rooms
-CREATE INDEX IF NOT EXISTS idx_call_rooms_status ON call_rooms(status) WHERE status = 'pending';
+CREATE INDEX idx_call_rooms_status ON call_rooms(status) WHERE status = 'pending';
 
 -- ============================================
 -- ROW LEVEL SECURITY (RLS) POLICIES

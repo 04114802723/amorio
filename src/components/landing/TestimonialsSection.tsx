@@ -2,7 +2,7 @@
 
 import { motion } from "framer-motion";
 import { Card } from "@/components/ui/Card";
-import { Star, Quote } from "lucide-react";
+import { Star, MessageCircle } from "lucide-react";
 
 const testimonials = [
   {
@@ -89,7 +89,7 @@ export function TestimonialsSection() {
             >
               <Card className="h-full">
                 {/* Quote icon */}
-                <Quote className="w-8 h-8 text-primary-500/30 mb-4" />
+                <MessageCircle className="w-8 h-8 text-primary-500/30 mb-4" />
 
                 {/* Text */}
                 <p className="text-dark-200 mb-6 leading-relaxed">

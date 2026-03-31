@@ -3,7 +3,7 @@
 import { motion } from "framer-motion";
 import { Card } from "@/components/ui/Card";
 import {
-  Shuffle,
+  RefreshCw,
   Users,
   MessageCircle,
   Video,
@@ -15,7 +15,7 @@ import {
 
 const features = [
   {
-    icon: Shuffle,
+    icon: RefreshCw,
     title: "Vibe Selector",
     description:
       "Choose your mood before matching — Chill, Deep Talk, Funny, or Chaotic. We pair you with someone on the same wavelength.",

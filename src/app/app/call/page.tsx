@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, Suspense } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/Button";
 import { useSearchParams } from "next/navigation";
@@ -30,7 +30,7 @@ const reactionEmojis = [
   { emoji: "🎉", icon: PartyPopper, color: "text-yellow-500" },
 ];
 
-export default function CallPage() {
+function CallPageContent() {
   const searchParams = useSearchParams();
   const vibe = searchParams.get("vibe") || "chill";
   
@@ -477,5 +477,34 @@ export default function CallPage() {
         }
       `}</style>
     </main>
+  );
+}
+
+function LoadingFallback() {
+  return (
+    <main className="min-h-screen bg-dark-950 flex items-center justify-center">
+      <div className="fixed inset-0 bg-hero-gradient" />
+      <div className="relative z-10 text-center">
+        <div className="relative w-32 h-32 mx-auto mb-8">
+          <motion.div
+            animate={{ rotate: 360 }}
+            transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
+            className="absolute inset-0 rounded-full border-4 border-transparent border-t-primary-500 border-r-secondary-500"
+          />
+          <div className="absolute inset-4 rounded-full bg-gradient-to-br from-primary-500 to-secondary-500 flex items-center justify-center">
+            <Loader2 className="w-10 h-10 text-white animate-spin" />
+          </div>
+        </div>
+        <h2 className="text-2xl font-bold text-white mb-2">Loading...</h2>
+      </div>
+    </main>
+  );
+}
+
+export default function CallPage() {
+  return (
+    <Suspense fallback={<LoadingFallback />}>
+      <CallPageContent />
+    </Suspense>
   );
 }

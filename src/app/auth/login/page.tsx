@@ -1,49 +1,89 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/Button";
 import Link from "next/link";
-import { ArrowLeft, Mail, Lock, Eye, EyeOff } from "lucide-react";
+import { useSearchParams } from "next/navigation";
+import { ArrowLeft, Mail, Lock, Eye, EyeOff, CheckCircle } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
+import { Suspense } from "react";
 
-export default function LoginPage() {
+function LoginContent() {
+  const searchParams = useSearchParams();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
   const [mode, setMode] = useState<"login" | "signup">("login");
   const supabase = createClient();
 
+  // Check for URL error param
+  useEffect(() => {
+    const urlError = searchParams.get("error");
+    if (urlError === "auth_failed") {
+      setError("Authentication failed. Please try again or check your email for confirmation link.");
+    }
+  }, [searchParams]);
+
   const handleGoogleLogin = async () => {
     setIsLoading(true);
-    await supabase.auth.signInWithOAuth({
+    setError(null);
+    const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
         redirectTo: `${window.location.origin}/auth/callback`,
       },
     });
+    if (error) {
+      setError("Google login is not enabled. Please use email login.");
+      setIsLoading(false);
+    }
   };
 
   const handleEmailAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
     setError(null);
+    setSuccess(null);
 
     try {
       if (mode === "login") {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
-        if (error) throw error;
+        if (error) {
+          if (error.message.includes("Email not confirmed")) {
+            setError("Please check your email and click the confirmation link first.");
+          } else if (error.message.includes("Invalid login")) {
+            setError("Invalid email or password. Please try again.");
+          } else {
+            throw error;
+          }
+          return;
+        }
         window.location.href = "/app";
       } else {
-        const { error } = await supabase.auth.signUp({
+        const { data, error } = await supabase.auth.signUp({
           email,
           password,
-          options: { emailRedirectTo: `${window.location.origin}/auth/callback` },
+          options: { 
+            emailRedirectTo: `${window.location.origin}/auth/callback?next=/app`,
+          },
         });
         if (error) throw error;
-        setError("Check your email to confirm your account!");
+        
+        // Check if email confirmation is required
+        if (data.user && data.user.identities && data.user.identities.length === 0) {
+          setError("This email is already registered. Try logging in instead.");
+        } else if (data.session) {
+          // No email confirmation required - auto logged in
+          window.location.href = "/app";
+        } else {
+          // Email confirmation required
+          setSuccess("Check your email for a confirmation link! Click it to complete signup.");
+          setMode("login");
+        }
       }
     } catch (err: any) {
       setError(err.message);
@@ -84,7 +124,15 @@ export default function LoginPage() {
             </p>
           </div>
 
-          {/* Google Button */}
+          {/* Success Message */}
+          {success && (
+            <div className="mb-6 p-4 rounded-xl bg-green-500/10 border border-green-500/20 flex items-start gap-3">
+              <CheckCircle className="w-5 h-5 text-green-400 mt-0.5 flex-shrink-0" />
+              <p className="text-green-400 text-sm">{success}</p>
+            </div>
+          )}
+
+          {/* Google Button - Hidden if not configured */}
           <Button
             variant="secondary"
             size="lg"
@@ -142,9 +190,7 @@ export default function LoginPage() {
             </div>
 
             {error && (
-              <p className={`text-sm ${error.includes("Check") ? "text-green-400" : "text-red-400"}`}>
-                {error}
-              </p>
+              <p className="text-sm text-red-400">{error}</p>
             )}
 
             <Button variant="primary" size="lg" disabled={isLoading} className="w-full">
@@ -156,7 +202,7 @@ export default function LoginPage() {
           <p className="text-center text-dark-400 mt-6">
             {mode === "login" ? "Don't have an account? " : "Already have an account? "}
             <button
-              onClick={() => setMode(mode === "login" ? "signup" : "login")}
+              onClick={() => { setMode(mode === "login" ? "signup" : "login"); setError(null); setSuccess(null); }}
               className="text-primary-400 hover:text-primary-300"
             >
               {mode === "login" ? "Sign up" : "Sign in"}
@@ -171,5 +217,17 @@ export default function LoginPage() {
         </p>
       </motion.div>
     </main>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={
+      <main className="min-h-screen bg-dark-950 flex items-center justify-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary-500"></div>
+      </main>
+    }>
+      <LoginContent />
+    </Suspense>
   );
 }

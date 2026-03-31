@@ -9,7 +9,7 @@ app.use(cors());
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
   cors: {
-    origin: ["http://localhost:3000", "https://amorio.vercel.app"],
+     origin: ["http://localhost:3000", "https://amorio.vercel.app", "https://amorio-*.vercel.app", /\.vercel\.app$/],
     methods: ["GET", "POST"],
   },
 });

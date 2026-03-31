@@ -65,6 +65,7 @@ declare module 'lucide-react' {
   export const RefreshCw: Icon;
   export const ExternalLink: Icon;
   export const Link: Icon;
+  export const Target: Icon;
   export const Image: Icon;
   export const Play: Icon;
   export const Pause: Icon;

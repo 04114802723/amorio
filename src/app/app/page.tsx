@@ -1,10 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/Button";
 import Link from "next/link";
-import { Coffee, Brain, Laugh, Zap, Video, ArrowLeft, Users, MessageCircle } from "lucide-react";
+import { Coffee, Brain, Laugh, Zap, Video, ArrowLeft, Users, MessageCircle, LogOut, User } from "lucide-react";
+import { useAuth } from "@/hooks/useAuth";
+import { useRouter } from "next/navigation";
 
 const vibes = [
   { id: "chill", label: "Chill", icon: Coffee, description: "Relaxed, casual conversation", color: "from-blue-500 to-cyan-500", emoji: "😌" },
@@ -14,8 +16,18 @@ const vibes = [
 ];
 
 export default function AppPage() {
+  const { user, profile, loading, signOut } = useAuth();
+  const router = useRouter();
   const [selectedVibe, setSelectedVibe] = useState<string | null>(null);
   const [isMatching, setIsMatching] = useState(false);
+  const [showProfileMenu, setShowProfileMenu] = useState(false);
+
+  // Redirect to login if not authenticated
+  useEffect(() => {
+    if (!loading && !user) {
+      router.push("/auth/login?redirect=/app");
+    }
+  }, [user, loading, router]);
 
   const handleStartMatching = () => {
     if (selectedVibe) {
@@ -25,6 +37,20 @@ export default function AppPage() {
       }, 1500);
     }
   };
+
+  // Show loading while checking auth
+  if (loading) {
+    return (
+      <main className="min-h-screen bg-dark-950 flex items-center justify-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary-500"></div>
+      </main>
+    );
+  }
+
+  // Don't render if not logged in (will redirect)
+  if (!user) {
+    return null;
+  }
 
   return (
     <main className="min-h-screen bg-dark-950 flex items-center justify-center p-4">
@@ -38,8 +64,53 @@ export default function AppPage() {
             <ArrowLeft className="w-5 h-5" />Back
           </Link>
           <div className="flex items-center gap-4">
-            <Link href="/app/friends" className="text-dark-400 hover:text-white transition-colors"><Users className="w-5 h-5" /></Link>
-            <Link href="/app/chat" className="text-dark-400 hover:text-white transition-colors"><MessageCircle className="w-5 h-5" /></Link>
+            <Link href="/app/friends" className="text-dark-400 hover:text-white transition-colors" title="Friends">
+              <Users className="w-5 h-5" />
+            </Link>
+            <Link href="/app/chat" className="text-dark-400 hover:text-white transition-colors" title="Chat">
+              <MessageCircle className="w-5 h-5" />
+            </Link>
+            
+            {/* User Profile Menu */}
+            <div className="relative">
+              <button
+                onClick={() => setShowProfileMenu(!showProfileMenu)}
+                className="flex items-center gap-2 text-dark-400 hover:text-white transition-colors"
+              >
+                {profile?.avatar_url ? (
+                  <img src={profile.avatar_url} alt="Profile" className="w-8 h-8 rounded-full" />
+                ) : (
+                  <div className="w-8 h-8 rounded-full bg-gradient-to-br from-primary-500 to-secondary-500 flex items-center justify-center">
+                    <User className="w-4 h-4 text-white" />
+                  </div>
+                )}
+              </button>
+              
+              {showProfileMenu && (
+                <motion.div
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="absolute right-0 mt-2 w-48 glass rounded-xl p-2 shadow-xl"
+                >
+                  <div className="px-3 py-2 border-b border-dark-700">
+                    <p className="text-sm font-medium text-white truncate">
+                      {profile?.display_name || user.email?.split("@")[0]}
+                    </p>
+                    <p className="text-xs text-dark-400 truncate">{user.email}</p>
+                  </div>
+                  <button
+                    onClick={() => {
+                      signOut();
+                      router.push("/");
+                    }}
+                    className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-400 hover:bg-dark-700 rounded-lg mt-1"
+                  >
+                    <LogOut className="w-4 h-4" />
+                    Sign Out
+                  </button>
+                </motion.div>
+              )}
+            </div>
           </div>
         </div>
 

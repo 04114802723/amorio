@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, Suspense } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/Button";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams, useRouter } from "next/navigation";
 import {
   SkipForward, UserPlus, Mic, MicOff, Video, VideoOff,
   Sparkles, X, Heart, ThumbsUp, Flame, PartyPopper, Loader2, CheckCircle, Users
@@ -35,7 +35,8 @@ const reactionEmojis = [
 function CallPageContent() {
   const searchParams = useSearchParams();
   const vibe = searchParams.get("vibe") || "chill";
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
+  const router = useRouter();
   
   const [isMuted, setIsMuted] = useState(false);
   const [isVideoOff, setIsVideoOff] = useState(false);
@@ -53,6 +54,13 @@ function CallPageContent() {
   
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
+
+  // Redirect to login if not authenticated
+  useEffect(() => {
+    if (!authLoading && !user) {
+      router.push("/auth/login?redirect=/app");
+    }
+  }, [user, authLoading, router]);
 
   const {
     isConnected,
@@ -101,14 +109,6 @@ function CallPageContent() {
     },
   });
 
-  // Start matching when component mounts
-  useEffect(() => {
-    joinQueue();
-    return () => {
-      stopStreams();
-    };
-  }, []);
-
   // Attach local stream to video element
   useEffect(() => {
     if (localVideoRef.current && localStream) {
@@ -132,6 +132,16 @@ function CallPageContent() {
       });
     }
   }, [remoteStream]);
+
+  // Start matching when component mounts (only if user is authenticated)
+  useEffect(() => {
+    if (user) {
+      joinQueue();
+    }
+    return () => {
+      stopStreams();
+    };
+  }, [user]);
 
   const enableAudio = () => {
     if (remoteVideoRef.current) {
@@ -200,6 +210,16 @@ function CallPageContent() {
     stopStreams();
     window.location.href = "/app";
   };
+
+  // Show loading while checking auth
+  if (authLoading) {
+    return <LoadingFallback />;
+  }
+
+  // Don't render if not logged in (will redirect)
+  if (!user) {
+    return <LoadingFallback />;
+  }
 
   // Waiting screen
   if (!isInCall) {

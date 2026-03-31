@@ -2,10 +2,13 @@
 
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/Button";
-import { Sparkles, Video, Users } from "lucide-react";
+import { Sparkles, Video } from "lucide-react";
 import Link from "next/link";
+import { useAuth } from "@/hooks/useAuth";
 
 export function HeroSection() {
+  const { user } = useAuth();
+
   return (
     <section className="relative min-h-screen flex items-center justify-center overflow-hidden pt-24">
       {/* Animated background */}
@@ -73,7 +76,8 @@ export function HeroSection() {
           transition={{ duration: 0.6, delay: 0.3 }}
           className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-16"
         >
-          <Link href="/app">
+          {/* If logged in, go to app. Otherwise, go to login */}
+          <Link href={user ? "/app" : "/auth/login?redirect=/app"}>
             <Button variant="primary" size="xl">
               <Video className="w-5 h-5 mr-2" />
               Start Random Call

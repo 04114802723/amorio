@@ -3,8 +3,10 @@
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import { useState, useEffect } from "react";
-import { Menu, X } from "lucide-react";
+import { Menu, X, User, LogOut, Video } from "lucide-react";
 import { Button } from "@/components/ui/Button";
+import { useAuth } from "@/hooks/useAuth";
+import { useRouter } from "next/navigation";
 
 const navLinks = [
   { href: "#features", label: "Features" },
@@ -13,8 +15,11 @@ const navLinks = [
 ];
 
 export function Navbar() {
+  const { user, profile, signOut } = useAuth();
+  const router = useRouter();
   const [isOpen, setIsOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
+  const [showProfileMenu, setShowProfileMenu] = useState(false);
 
   useEffect(() => {
     const handleScroll = () => {
@@ -23,6 +28,12 @@ export function Navbar() {
     window.addEventListener("scroll", handleScroll);
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
+
+  const handleSignOut = async () => {
+    await signOut();
+    router.push("/");
+    setShowProfileMenu(false);
+  };
 
   return (
     <motion.nav
@@ -65,13 +76,78 @@ export function Navbar() {
               ))}
             </div>
 
-            {/* CTA Button */}
-            <div className="hidden md:block">
-              <Link href="/app">
-                <Button variant="primary" size="md">
-                  Get Started — Free
-                </Button>
-              </Link>
+            {/* Auth Section */}
+            <div className="hidden md:flex items-center gap-4">
+              {user ? (
+                <>
+                  <Link href="/app">
+                    <Button variant="primary" size="md">
+                      <Video className="w-4 h-4 mr-2" />
+                      Start Call
+                    </Button>
+                  </Link>
+                  
+                  {/* User Profile Menu */}
+                  <div className="relative">
+                    <button
+                      onClick={() => setShowProfileMenu(!showProfileMenu)}
+                      className="flex items-center gap-2 hover:opacity-80 transition-opacity"
+                    >
+                      {profile?.avatar_url ? (
+                        <img src={profile.avatar_url} alt="Profile" className="w-10 h-10 rounded-full border-2 border-primary-500" />
+                      ) : (
+                        <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary-500 to-secondary-500 flex items-center justify-center border-2 border-primary-500">
+                          <User className="w-5 h-5 text-white" />
+                        </div>
+                      )}
+                    </button>
+                    
+                    {showProfileMenu && (
+                      <motion.div
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="absolute right-0 mt-2 w-56 glass rounded-xl p-2 shadow-xl"
+                      >
+                        <div className="px-3 py-2 border-b border-dark-700">
+                          <p className="text-sm font-medium text-white truncate">
+                            {profile?.display_name || user.email?.split("@")[0]}
+                          </p>
+                          <p className="text-xs text-dark-400 truncate">{user.email}</p>
+                        </div>
+                        <Link
+                          href="/app"
+                          className="flex items-center gap-2 px-3 py-2 text-sm text-dark-200 hover:bg-dark-700 rounded-lg mt-1"
+                          onClick={() => setShowProfileMenu(false)}
+                        >
+                          <Video className="w-4 h-4" />
+                          Random Call
+                        </Link>
+                        <Link
+                          href="/app/friends"
+                          className="flex items-center gap-2 px-3 py-2 text-sm text-dark-200 hover:bg-dark-700 rounded-lg"
+                          onClick={() => setShowProfileMenu(false)}
+                        >
+                          <User className="w-4 h-4" />
+                          My Friends
+                        </Link>
+                        <button
+                          onClick={handleSignOut}
+                          className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-400 hover:bg-dark-700 rounded-lg"
+                        >
+                          <LogOut className="w-4 h-4" />
+                          Sign Out
+                        </button>
+                      </motion.div>
+                    )}
+                  </div>
+                </>
+              ) : (
+                <Link href="/auth/login">
+                  <Button variant="primary" size="md">
+                    Get Started — Free
+                  </Button>
+                </Link>
+              )}
             </div>
 
             {/* Mobile Menu Button */}
@@ -104,11 +180,42 @@ export function Navbar() {
                       {link.label}
                     </Link>
                   ))}
-                  <Link href="/app">
-                    <Button variant="primary" size="md" className="w-full mt-2">
-                      Get Started — Free
-                    </Button>
-                  </Link>
+                  
+                  {user ? (
+                    <>
+                      <div className="flex items-center gap-3 py-2 border-t border-white/10">
+                        {profile?.avatar_url ? (
+                          <img src={profile.avatar_url} alt="Profile" className="w-8 h-8 rounded-full" />
+                        ) : (
+                          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-primary-500 to-secondary-500 flex items-center justify-center">
+                            <User className="w-4 h-4 text-white" />
+                          </div>
+                        )}
+                        <div>
+                          <p className="text-sm font-medium text-white">{profile?.display_name || user.email?.split("@")[0]}</p>
+                          <p className="text-xs text-dark-400">{user.email}</p>
+                        </div>
+                      </div>
+                      <Link href="/app" onClick={() => setIsOpen(false)}>
+                        <Button variant="primary" size="md" className="w-full">
+                          <Video className="w-4 h-4 mr-2" />
+                          Start Call
+                        </Button>
+                      </Link>
+                      <button
+                        onClick={() => { handleSignOut(); setIsOpen(false); }}
+                        className="text-red-400 text-left"
+                      >
+                        Sign Out
+                      </button>
+                    </>
+                  ) : (
+                    <Link href="/auth/login" onClick={() => setIsOpen(false)}>
+                      <Button variant="primary" size="md" className="w-full mt-2">
+                        Get Started — Free
+                      </Button>
+                    </Link>
+                  )}
                 </div>
               </motion.div>
             )}

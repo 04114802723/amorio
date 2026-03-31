@@ -1,66 +1,102 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, Suspense } from "react";
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/Button";
 import Link from "next/link";
-import { ArrowLeft, Video, Send, Phone, X } from "lucide-react";
+import { useSearchParams } from "next/navigation";
+import { ArrowLeft, Video, Send, Phone, X, Loader2 } from "lucide-react";
+import { useAuth } from "@/hooks/useAuth";
+import { useFriends, useMessages, Friend } from "@/hooks/useDatabase";
+import { createClient } from "@/lib/supabase/client";
 
-const mockConversations = [
-  {
-    id: 1,
-    friend: { name: "Alex K.", avatar: "A", online: true },
-    messages: [
-      { id: 1, text: "Hey! Great call yesterday 😊", sender: "them", time: "2:30 PM" },
-      { id: 2, text: "Yeah it was fun! Your music taste is impeccable", sender: "me", time: "2:32 PM" },
-      { id: 3, text: "Haha thanks! We should do another call sometime", sender: "them", time: "2:33 PM" },
-    ],
-  },
-  {
-    id: 2,
-    friend: { name: "Maria L.", avatar: "M", online: false },
-    messages: [
-      { id: 1, text: "That was such a fun conversation!", sender: "them", time: "Yesterday" },
-      { id: 2, text: "I know right! Can't believe we both love that show", sender: "me", time: "Yesterday" },
-    ],
-  },
-];
-
-export default function ChatPage() {
-  const [selectedChat, setSelectedChat] = useState<number | null>(null);
-  const [messageInput, setMessageInput] = useState("");
-  const [messages, setMessages] = useState(mockConversations[0]?.messages || []);
+function ChatPageContent() {
+  const searchParams = useSearchParams();
+  const friendshipIdFromUrl = searchParams.get("friendship");
+  
+  const { user, loading: authLoading } = useAuth();
+  const { friends, loading: friendsLoading } = useFriends(user?.id);
+  const [selectedFriendshipId, setSelectedFriendshipId] = useState<string | null>(friendshipIdFromUrl);
   const [showCallModal, setShowCallModal] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const supabase = createClient();
 
-  const currentConversation = mockConversations.find((c) => c.id === selectedChat);
+  // Get selected friend
+  const selectedFriend = friends.find(f => f.friendship_id === selectedFriendshipId);
+  
+  // Get messages for selected friendship
+  const { messages, loading: messagesLoading, sendMessage } = useMessages(selectedFriendshipId || undefined);
+  const [messageInput, setMessageInput] = useState("");
 
+  // Set initial selection from URL
+  useEffect(() => {
+    if (friendshipIdFromUrl) {
+      setSelectedFriendshipId(friendshipIdFromUrl);
+    }
+  }, [friendshipIdFromUrl]);
+
+  // Scroll to bottom on new messages
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  const handleSendMessage = () => {
-    if (!messageInput.trim()) return;
-    const newMessage = {
-      id: messages.length + 1,
-      text: messageInput,
-      sender: "me" as const,
-      time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-    };
-    setMessages([...messages, newMessage]);
+  const handleSendMessage = async () => {
+    if (!messageInput.trim() || !user?.id) return;
+    await sendMessage(messageInput.trim(), user.id);
     setMessageInput("");
   };
 
-  const handleStartCall = () => {
-    setShowCallModal(true);
+  const handleStartCall = async () => {
+    if (!selectedFriend || !user) return;
+    
+    // Create a call room
+    const roomCode = `call_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    
+    const { error } = await supabase
+      .from('call_rooms')
+      .insert({
+        friendship_id: selectedFriendshipId,
+        created_by: user.id,
+        room_code: roomCode,
+        status: 'pending'
+      });
+
+    if (!error) {
+      // Send message with call link
+      await sendMessage(`📹 Video call started! Join here: /app/call?room=${roomCode}`, user.id);
+      setShowCallModal(false);
+      // Navigate to call
+      window.location.href = `/app/call?room=${roomCode}&friend=${selectedFriendshipId}`;
+    }
   };
+
+  if (authLoading || friendsLoading) {
+    return (
+      <main className="min-h-screen bg-dark-950 flex items-center justify-center">
+        <Loader2 className="w-8 h-8 text-primary-500 animate-spin" />
+      </main>
+    );
+  }
+
+  if (!user) {
+    return (
+      <main className="min-h-screen bg-dark-950 flex items-center justify-center">
+        <div className="text-center">
+          <h2 className="text-xl font-bold text-white mb-4">Please log in to chat</h2>
+          <Link href="/auth/login">
+            <Button variant="primary">Login</Button>
+          </Link>
+        </div>
+      </main>
+    );
+  }
 
   return (
     <main className="min-h-screen bg-dark-950 flex">
       <div className="fixed inset-0 bg-hero-gradient -z-10" />
 
       {/* Sidebar - Conversations List */}
-      <div className={`w-full md:w-80 border-r border-white/10 flex flex-col ${selectedChat ? "hidden md:flex" : "flex"}`}>
+      <div className={`w-full md:w-80 border-r border-white/10 flex flex-col ${selectedFriendshipId ? "hidden md:flex" : "flex"}`}>
         <div className="p-4 border-b border-white/10">
           <div className="flex items-center justify-between">
             <Link href="/app" className="flex items-center gap-2 text-dark-400 hover:text-white transition-colors">
@@ -72,60 +108,82 @@ export default function ChatPage() {
         </div>
 
         <div className="flex-1 overflow-y-auto">
-          {mockConversations.map((conv) => (
-            <motion.button
-              key={conv.id}
-              whileHover={{ backgroundColor: "rgba(255,255,255,0.05)" }}
-              onClick={() => {
-                setSelectedChat(conv.id);
-                setMessages(conv.messages);
-              }}
-              className={`w-full p-4 flex items-center gap-3 text-left transition-colors ${
-                selectedChat === conv.id ? "bg-white/10" : ""
-              }`}
-            >
-              <div className="relative">
-                <div className="w-12 h-12 rounded-full bg-gradient-to-br from-primary-500 to-secondary-500 flex items-center justify-center text-white font-semibold">
-                  {conv.friend.avatar}
+          {friends.length === 0 ? (
+            <div className="p-4 text-center">
+              <p className="text-dark-400">No conversations yet</p>
+              <p className="text-dark-500 text-sm mt-2">Make friends during random calls!</p>
+            </div>
+          ) : (
+            friends.map((friend) => (
+              <motion.button
+                key={friend.friendship_id}
+                whileHover={{ backgroundColor: "rgba(255,255,255,0.05)" }}
+                onClick={() => setSelectedFriendshipId(friend.friendship_id)}
+                className={`w-full p-4 flex items-center gap-3 text-left transition-colors ${
+                  selectedFriendshipId === friend.friendship_id ? "bg-white/10" : ""
+                }`}
+              >
+                <div className="relative">
+                  <div className="w-12 h-12 rounded-full bg-gradient-to-br from-primary-500 to-secondary-500 flex items-center justify-center overflow-hidden">
+                    {friend.friend_avatar ? (
+                      <img src={friend.friend_avatar} alt="" className="w-full h-full object-cover" />
+                    ) : (
+                      <span className="text-white font-semibold">
+                        {(friend.friend_name || friend.friend_email)[0].toUpperCase()}
+                      </span>
+                    )}
+                  </div>
+                  {friend.friend_online && (
+                    <div className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 rounded-full border-2 border-dark-900" />
+                  )}
                 </div>
-                {conv.friend.online && (
-                  <div className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 rounded-full border-2 border-dark-900" />
-                )}
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="text-white font-semibold">{conv.friend.name}</div>
-                <div className="text-dark-400 text-sm truncate">
-                  {conv.messages[conv.messages.length - 1]?.text}
+                <div className="flex-1 min-w-0">
+                  <div className="text-white font-semibold">
+                    {friend.friend_name || friend.friend_email.split("@")[0]}
+                  </div>
+                  <div className="text-dark-400 text-sm">
+                    {friend.friend_online ? "Online" : "Offline"}
+                  </div>
                 </div>
-              </div>
-            </motion.button>
-          ))}
+              </motion.button>
+            ))
+          )}
         </div>
       </div>
 
       {/* Chat Area */}
-      {selectedChat ? (
+      {selectedFriendshipId && selectedFriend ? (
         <div className="flex-1 flex flex-col">
           {/* Chat Header */}
           <div className="p-4 border-b border-white/10 flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <button className="md:hidden text-dark-400 hover:text-white" onClick={() => setSelectedChat(null)}>
+              <button className="md:hidden text-dark-400 hover:text-white" onClick={() => setSelectedFriendshipId(null)}>
                 <ArrowLeft className="w-5 h-5" />
               </button>
-              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary-500 to-secondary-500 flex items-center justify-center text-white font-semibold">
-                {currentConversation?.friend.avatar}
+              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary-500 to-secondary-500 flex items-center justify-center overflow-hidden">
+                {selectedFriend.friend_avatar ? (
+                  <img src={selectedFriend.friend_avatar} alt="" className="w-full h-full object-cover" />
+                ) : (
+                  <span className="text-white font-semibold">
+                    {(selectedFriend.friend_name || selectedFriend.friend_email)[0].toUpperCase()}
+                  </span>
+                )}
               </div>
               <div>
-                <div className="text-white font-semibold">{currentConversation?.friend.name}</div>
+                <div className="text-white font-semibold">
+                  {selectedFriend.friend_name || selectedFriend.friend_email.split("@")[0]}
+                </div>
                 <div className="text-dark-400 text-sm">
-                  {currentConversation?.friend.online ? "Online" : "Offline"}
+                  {selectedFriend.friend_online ? (
+                    <span className="text-green-400">Online</span>
+                  ) : "Offline"}
                 </div>
               </div>
             </div>
             <motion.button
               whileHover={{ scale: 1.1 }}
               whileTap={{ scale: 0.9 }}
-              onClick={handleStartCall}
+              onClick={() => setShowCallModal(true)}
               className="w-10 h-10 rounded-full bg-gradient-to-r from-primary-500 to-secondary-500 flex items-center justify-center text-white"
             >
               <Video className="w-5 h-5" />
@@ -134,27 +192,38 @@ export default function ChatPage() {
 
           {/* Messages */}
           <div className="flex-1 overflow-y-auto p-4 space-y-4">
-            {messages.map((msg) => (
-              <motion.div
-                key={msg.id}
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                className={`flex ${msg.sender === "me" ? "justify-end" : "justify-start"}`}
-              >
-                <div
-                  className={`max-w-[80%] px-4 py-2 rounded-2xl ${
-                    msg.sender === "me"
-                      ? "bg-gradient-to-r from-primary-500 to-secondary-500 text-white"
-                      : "glass text-white"
-                  }`}
+            {messagesLoading ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="w-6 h-6 text-primary-500 animate-spin" />
+              </div>
+            ) : messages.length === 0 ? (
+              <div className="text-center py-8">
+                <p className="text-dark-400">No messages yet</p>
+                <p className="text-dark-500 text-sm">Say hi to {selectedFriend.friend_name || "your friend"}!</p>
+              </div>
+            ) : (
+              messages.map((msg) => (
+                <motion.div
+                  key={msg.id}
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className={`flex ${msg.sender_id === user.id ? "justify-end" : "justify-start"}`}
                 >
-                  <p>{msg.text}</p>
-                  <p className={`text-xs mt-1 ${msg.sender === "me" ? "text-white/70" : "text-dark-400"}`}>
-                    {msg.time}
-                  </p>
-                </div>
-              </motion.div>
-            ))}
+                  <div
+                    className={`max-w-[80%] px-4 py-2 rounded-2xl ${
+                      msg.sender_id === user.id
+                        ? "bg-gradient-to-r from-primary-500 to-secondary-500 text-white"
+                        : "glass text-white"
+                    }`}
+                  >
+                    <p>{msg.content}</p>
+                    <p className={`text-xs mt-1 ${msg.sender_id === user.id ? "text-white/70" : "text-dark-400"}`}>
+                      {formatTime(msg.created_at)}
+                    </p>
+                  </div>
+                </motion.div>
+              ))
+            )}
             <div ref={messagesEndRef} />
           </div>
 
@@ -173,7 +242,8 @@ export default function ChatPage() {
                 whileHover={{ scale: 1.1 }}
                 whileTap={{ scale: 0.9 }}
                 onClick={handleSendMessage}
-                className="w-12 h-12 rounded-xl bg-gradient-to-r from-primary-500 to-secondary-500 flex items-center justify-center text-white"
+                disabled={!messageInput.trim()}
+                className="w-12 h-12 rounded-xl bg-gradient-to-r from-primary-500 to-secondary-500 flex items-center justify-center text-white disabled:opacity-50"
               >
                 <Send className="w-5 h-5" />
               </motion.button>
@@ -193,7 +263,7 @@ export default function ChatPage() {
       )}
 
       {/* Call Modal */}
-      {showCallModal && (
+      {showCallModal && selectedFriend && (
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
@@ -202,7 +272,7 @@ export default function ChatPage() {
           <motion.div
             initial={{ scale: 0.9, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
-            className="glass rounded-2xl p-8 max-w-md w-full text-center"
+            className="glass rounded-2xl p-8 max-w-md w-full text-center relative"
           >
             <button
               onClick={() => setShowCallModal(false)}
@@ -213,7 +283,9 @@ export default function ChatPage() {
             <div className="w-20 h-20 rounded-full bg-gradient-to-br from-primary-500 to-secondary-500 flex items-center justify-center mx-auto mb-6">
               <Video className="w-10 h-10 text-white" />
             </div>
-            <h3 className="text-2xl font-bold text-white mb-2">Call {currentConversation?.friend.name}?</h3>
+            <h3 className="text-2xl font-bold text-white mb-2">
+              Call {selectedFriend.friend_name || selectedFriend.friend_email.split("@")[0]}?
+            </h3>
             <p className="text-dark-400 mb-6">
               A unique room link will be sent. They'll join when ready.
             </p>
@@ -221,7 +293,7 @@ export default function ChatPage() {
               <Button variant="secondary" onClick={() => setShowCallModal(false)} className="flex-1">
                 Cancel
               </Button>
-              <Button variant="primary" className="flex-1">
+              <Button variant="primary" onClick={handleStartCall} className="flex-1">
                 <Video className="w-5 h-5 mr-2" /> Send Call Link
               </Button>
             </div>
@@ -230,5 +302,22 @@ export default function ChatPage() {
         </motion.div>
       )}
     </main>
+  );
+}
+
+function formatTime(dateStr: string): string {
+  const date = new Date(dateStr);
+  return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+export default function ChatPage() {
+  return (
+    <Suspense fallback={
+      <main className="min-h-screen bg-dark-950 flex items-center justify-center">
+        <Loader2 className="w-8 h-8 text-primary-500 animate-spin" />
+      </main>
+    }>
+      <ChatPageContent />
+    </Suspense>
   );
 }

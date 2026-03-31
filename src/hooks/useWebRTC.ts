@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback } from "react";
 import { io, Socket } from "socket.io-client";
+import { createClient } from "@/lib/supabase/client";
 
 const SOCKET_URL = process.env.NEXT_PUBLIC_SOCKET_URL || "http://localhost:3001";
 
@@ -10,25 +11,31 @@ const ICE_SERVERS = {
     { urls: "stun:stun.l.google.com:19302" },
     { urls: "stun:stun1.l.google.com:19302" },
     { urls: "stun:stun2.l.google.com:19302" },
+    { urls: "stun:stun3.l.google.com:19302" },
+    { urls: "stun:stun4.l.google.com:19302" },
   ],
 };
 
 interface UseWebRTCProps {
   vibe: string;
-  onMatched?: () => void;
+  userId?: string;
+  onMatched?: (partnerUserId?: string, crossVibe?: boolean) => void;
   onPartnerLeft?: () => void;
-  onFriendRequest?: () => void;
-  onFriendshipConfirmed?: () => void;
+  onFriendRequest?: (fromUserId?: string) => void;
+  onFriendshipConfirmed?: (user1Id?: string, user2Id?: string) => void;
   onReaction?: (emoji: string) => void;
+  onCrossVibeMatch?: (originalVibe: string, matchedVibe: string) => void;
 }
 
 export function useWebRTC({
   vibe,
+  userId,
   onMatched,
   onPartnerLeft,
   onFriendRequest,
   onFriendshipConfirmed,
   onReaction,
+  onCrossVibeMatch,
 }: UseWebRTCProps) {
   const [isConnected, setIsConnected] = useState(false);
   const [isWaiting, setIsWaiting] = useState(false);
@@ -36,11 +43,13 @@ export function useWebRTC({
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [partnerUserId, setPartnerUserId] = useState<string | null>(null);
 
   const socketRef = useRef<Socket | null>(null);
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
   const roomIdRef = useRef<string | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
+  const supabase = createClient();
 
   // Initialize socket connection
   useEffect(() => {
@@ -62,16 +71,26 @@ export function useWebRTC({
       setIsWaiting(true);
     });
 
-    socketRef.current.on("matched", async ({ roomId, isInitiator }) => {
-      console.log("Matched! Room:", roomId, "Initiator:", isInitiator);
+    socketRef.current.on("still-waiting", ({ message }) => {
+      console.log("Still waiting:", message);
+    });
+
+    socketRef.current.on("matched", async ({ roomId, isInitiator, partnerUserId: pId, crossVibe }) => {
+      console.log("Matched! Room:", roomId, "Initiator:", isInitiator, "Partner:", pId);
       roomIdRef.current = roomId;
+      setPartnerUserId(pId || null);
       setIsWaiting(false);
       setIsInCall(true);
-      onMatched?.();
+      onMatched?.(pId, crossVibe);
 
       if (isInitiator) {
         await createOffer();
       }
+    });
+
+    socketRef.current.on("cross-vibe-match", ({ originalVibe, matchedVibe }) => {
+      console.log(`Cross-vibe match: ${originalVibe} -> ${matchedVibe}`);
+      onCrossVibeMatch?.(originalVibe, matchedVibe);
     });
 
     socketRef.current.on("offer", async ({ offer }) => {
@@ -86,7 +105,11 @@ export function useWebRTC({
 
     socketRef.current.on("ice-candidate", async ({ candidate }) => {
       if (peerConnectionRef.current && candidate) {
-        await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(candidate));
+        try {
+          await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(candidate));
+        } catch (err) {
+          console.log("Error adding ICE candidate:", err);
+        }
       }
     });
 
@@ -96,12 +119,24 @@ export function useWebRTC({
       onPartnerLeft?.();
     });
 
-    socketRef.current.on("friend-request-received", () => {
-      onFriendRequest?.();
+    socketRef.current.on("friend-request-received", ({ fromUserId }) => {
+      onFriendRequest?.(fromUserId);
     });
 
-    socketRef.current.on("friendship-confirmed", () => {
-      onFriendshipConfirmed?.();
+    socketRef.current.on("friendship-confirmed", async ({ user1Id, user2Id }) => {
+      // Save friendship to Supabase
+      if (user1Id && user2Id) {
+        try {
+          await supabase.rpc('create_friendship', {
+            user_a: user1Id,
+            user_b: user2Id
+          });
+          console.log("Friendship saved to database");
+        } catch (err) {
+          console.error("Failed to save friendship:", err);
+        }
+      }
+      onFriendshipConfirmed?.(user1Id, user2Id);
     });
 
     socketRef.current.on("reaction", ({ emoji }) => {
@@ -210,11 +245,11 @@ export function useWebRTC({
   const joinQueue = useCallback(async () => {
     try {
       await startLocalStream();
-      socketRef.current?.emit("join-queue", { vibe });
+      socketRef.current?.emit("join-queue", { vibe, userId });
     } catch (err) {
       console.error("Failed to join queue:", err);
     }
-  }, [vibe, startLocalStream]);
+  }, [vibe, userId, startLocalStream]);
 
   // Skip current call
   const skip = useCallback(() => {
@@ -226,17 +261,17 @@ export function useWebRTC({
 
   // Send friend request
   const sendFriendRequest = useCallback(() => {
-    if (roomIdRef.current) {
-      socketRef.current?.emit("friend-request", { roomId: roomIdRef.current });
+    if (roomIdRef.current && userId) {
+      socketRef.current?.emit("friend-request", { roomId: roomIdRef.current, userId });
     }
-  }, []);
+  }, [userId]);
 
   // Accept friend request
   const acceptFriendRequest = useCallback(() => {
-    if (roomIdRef.current) {
-      socketRef.current?.emit("friend-accept", { roomId: roomIdRef.current });
+    if (roomIdRef.current && userId) {
+      socketRef.current?.emit("friend-accept", { roomId: roomIdRef.current, userId });
     }
-  }, []);
+  }, [userId]);
 
   // Send reaction
   const sendReaction = useCallback((emoji: string) => {
@@ -275,6 +310,7 @@ export function useWebRTC({
     peerConnectionRef.current = null;
     roomIdRef.current = null;
     setRemoteStream(null);
+    setPartnerUserId(null);
     setIsInCall(false);
   }, []);
 
@@ -293,6 +329,7 @@ export function useWebRTC({
     localStream,
     remoteStream,
     error,
+    partnerUserId,
     joinQueue,
     skip,
     sendFriendRequest,

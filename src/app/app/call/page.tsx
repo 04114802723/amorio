@@ -6,9 +6,11 @@ import { Button } from "@/components/ui/Button";
 import { useSearchParams } from "next/navigation";
 import {
   SkipForward, UserPlus, Mic, MicOff, Video, VideoOff,
-  Sparkles, X, Heart, ThumbsUp, Flame, PartyPopper, Loader2, CheckCircle
+  Sparkles, X, Heart, ThumbsUp, Flame, PartyPopper, Loader2, CheckCircle, Users
 } from "lucide-react";
 import { useWebRTC } from "@/hooks/useWebRTC";
+import { useAuth } from "@/hooks/useAuth";
+import { FriendsPanel } from "@/components/FriendsPanel";
 
 const icebreakers = [
   "What's your most unpopular opinion?",
@@ -33,6 +35,7 @@ const reactionEmojis = [
 function CallPageContent() {
   const searchParams = useSearchParams();
   const vibe = searchParams.get("vibe") || "chill";
+  const { user } = useAuth();
   
   const [isMuted, setIsMuted] = useState(false);
   const [isVideoOff, setIsVideoOff] = useState(false);
@@ -44,6 +47,8 @@ function CallPageContent() {
   const [friendshipConfirmed, setFriendshipConfirmed] = useState(false);
   const [flyingReactions, setFlyingReactions] = useState<{id: number; emoji: string; x: number}[]>([]);
   const [audioBlocked, setAudioBlocked] = useState(false);
+  const [showFriendsPanel, setShowFriendsPanel] = useState(false);
+  const [crossVibeNotice, setCrossVibeNotice] = useState<string | null>(null);
   const reactionIdRef = useRef(0);
   
   const localVideoRef = useRef<HTMLVideoElement>(null);
@@ -56,6 +61,7 @@ function CallPageContent() {
     localStream,
     remoteStream,
     error,
+    partnerUserId,
     joinQueue,
     skip,
     sendFriendRequest,
@@ -66,23 +72,32 @@ function CallPageContent() {
     stopStreams,
   } = useWebRTC({
     vibe,
-    onMatched: () => {
+    userId: user?.id,
+    onMatched: (partnerId, crossVibe) => {
       setShowIcebreaker(true);
       spinIcebreaker();
+      if (crossVibe) {
+        setCrossVibeNotice("Matched with someone from a different vibe!");
+        setTimeout(() => setCrossVibeNotice(null), 5000);
+      }
     },
     onPartnerLeft: () => {
       setFriendRequestSent(false);
       setFriendRequestReceived(false);
       setFriendshipConfirmed(false);
     },
-    onFriendRequest: () => {
+    onFriendRequest: (fromUserId) => {
       setFriendRequestReceived(true);
     },
-    onFriendshipConfirmed: () => {
+    onFriendshipConfirmed: (user1Id, user2Id) => {
       setFriendshipConfirmed(true);
     },
     onReaction: (emoji) => {
       addFlyingReaction(emoji);
+    },
+    onCrossVibeMatch: (originalVibe, matchedVibe) => {
+      setCrossVibeNotice(`Switched from ${originalVibe} to ${matchedVibe} vibe!`);
+      setTimeout(() => setCrossVibeNotice(null), 5000);
     },
   });
 
@@ -269,6 +284,43 @@ function CallPageContent() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Cross-Vibe Notice */}
+      <AnimatePresence>
+        {crossVibeNotice && (
+          <motion.div
+            initial={{ opacity: 0, y: -50 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -50 }}
+            className="fixed top-16 left-1/2 -translate-x-1/2 z-50"
+          >
+            <div className="glass-strong rounded-full px-6 py-3 flex items-center gap-3">
+              <Sparkles className="w-5 h-5 text-yellow-400" />
+              <span className="text-white">{crossVibeNotice}</span>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Friends Panel */}
+      {user && (
+        <FriendsPanel
+          isOpen={showFriendsPanel}
+          onClose={() => setShowFriendsPanel(false)}
+          userId={user.id}
+        />
+      )}
+
+      {/* Friends Button - Fixed position */}
+      <motion.button
+        whileHover={{ scale: 1.05 }}
+        whileTap={{ scale: 0.95 }}
+        onClick={() => setShowFriendsPanel(true)}
+        className="fixed top-4 left-4 z-40 px-4 py-2 rounded-full glass flex items-center gap-2 text-white hover:bg-white/10"
+      >
+        <Users className="w-5 h-5" />
+        <span className="hidden sm:inline">Friends</span>
+      </motion.button>
 
       {/* Video Grid */}
       <div className="flex-1 flex flex-col md:flex-row gap-4 p-4">

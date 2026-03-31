@@ -4,14 +4,25 @@ import { createContext, useContext, useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { User, Session } from "@supabase/supabase-js";
 
+interface Profile {
+  id: string;
+  email: string;
+  display_name: string | null;
+  avatar_url: string | null;
+  is_online: boolean;
+  last_seen: string;
+}
+
 type AuthContextType = {
   user: User | null;
   session: Session | null;
+  profile: Profile | null;
   loading: boolean;
   signInWithGoogle: () => Promise<void>;
   signInWithEmail: (email: string, password: string) => Promise<{ error: Error | null }>;
   signUpWithEmail: (email: string, password: string) => Promise<{ error: Error | null }>;
   signOut: () => Promise<void>;
+  updateProfile: (updates: { display_name?: string; avatar_url?: string }) => Promise<void>;
 };
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -19,14 +30,46 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
+  const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
   const supabase = createClient();
+
+  // Fetch user profile
+  const fetchProfile = async (userId: string) => {
+    const { data, error } = await supabase
+      .from("profiles")
+      .select("*")
+      .eq("id", userId)
+      .single();
+
+    if (!error && data) {
+      setProfile(data);
+    }
+    return data;
+  };
+
+  // Set user online/offline status
+  const setOnlineStatus = async (userId: string, isOnline: boolean) => {
+    await supabase
+      .from("profiles")
+      .update({ 
+        is_online: isOnline,
+        last_seen: new Date().toISOString()
+      })
+      .eq("id", userId);
+  };
 
   useEffect(() => {
     const getSession = async () => {
       const { data: { session } } = await supabase.auth.getSession();
       setSession(session);
       setUser(session?.user ?? null);
+      
+      if (session?.user) {
+        await fetchProfile(session.user.id);
+        await setOnlineStatus(session.user.id, true);
+      }
+      
       setLoading(false);
     };
 
@@ -36,11 +79,35 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       async (event, session) => {
         setSession(session);
         setUser(session?.user ?? null);
+        
+        if (session?.user) {
+          await fetchProfile(session.user.id);
+          await setOnlineStatus(session.user.id, true);
+        } else {
+          setProfile(null);
+        }
+        
         setLoading(false);
       }
     );
 
-    return () => subscription.unsubscribe();
+    // Set offline on page unload
+    const handleUnload = () => {
+      if (user?.id) {
+        // Using sendBeacon for reliability on page close
+        navigator.sendBeacon(
+          `${process.env.NEXT_PUBLIC_SUPABASE_URL}/rest/v1/profiles?id=eq.${user.id}`,
+          JSON.stringify({ is_online: false, last_seen: new Date().toISOString() })
+        );
+      }
+    };
+
+    window.addEventListener("beforeunload", handleUnload);
+
+    return () => {
+      subscription.unsubscribe();
+      window.removeEventListener("beforeunload", handleUnload);
+    };
   }, []);
 
   const signInWithGoogle = async () => {
@@ -69,7 +136,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const signOut = async () => {
+    if (user?.id) {
+      await setOnlineStatus(user.id, false);
+    }
     await supabase.auth.signOut();
+    setProfile(null);
+  };
+
+  const updateProfile = async (updates: { display_name?: string; avatar_url?: string }) => {
+    if (!user?.id) return;
+    
+    const { data, error } = await supabase
+      .from("profiles")
+      .update(updates)
+      .eq("id", user.id)
+      .select()
+      .single();
+
+    if (!error && data) {
+      setProfile(data);
+    }
   };
 
   return (
@@ -77,11 +163,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       value={{
         user,
         session,
+        profile,
         loading,
         signInWithGoogle,
         signInWithEmail,
         signUpWithEmail,
         signOut,
+        updateProfile,
       }}
     >
       {children}

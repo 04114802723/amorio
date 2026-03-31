@@ -6,19 +6,23 @@ A video chat social platform where random calls turn into real friendships.
 
 ## Features
 
-- 🎲 **Random Call System** - Vibe selector, instant matching, skip anytime
+- 🎲 **Random Call System** - Vibe selector (Chill/Deep Talk/Funny/Chaotic), instant matching, skip anytime
+- 🔄 **Cross-Vibe Matching** - Auto-match with any vibe if queue is empty after 10s
 - 🎡 **Icebreaker Wheel** - Random conversation topics to break the ice
 - 💥 **Reaction Bombs** - Emoji reactions that fly across the screen
-- 🤝 **Friendship System** - Both must add each other during the call
-- 💬 **Private Chat** - Unlocked after mutual friend add
+- 🤝 **Friendship System** - Both must add each other during the call (saved to database)
+- 💬 **Persistent Chat** - Real-time messages stored in Supabase
 - 📞 **Reconnect** - Video call friends with unique room links
+- 👤 **User Profiles** - Auto-created on login, shows online status
+- 📱 **Friends Panel** - Access friends list even during random calls
+- 🚀 **Scalable** - Redis pub/sub support for 20k+ concurrent users
 
 ## Tech Stack
 
 - **Frontend**: Next.js 14 + TypeScript + Tailwind CSS + Framer Motion
-- **Auth/DB**: Supabase (Auth + PostgreSQL)
+- **Auth/DB**: Supabase (Auth + PostgreSQL + Realtime)
 - **Video**: WebRTC (P2P)
-- **Signaling**: Socket.io
+- **Signaling**: Socket.io + Redis (optional, for scaling)
 - **Hosting**: Vercel + Railway
 
 ---
@@ -41,18 +45,18 @@ cd d:\amorio\server
 npm install
 ```
 
-### Step 2: Configure Environment
+### Step 2: Configure Supabase
 
-1. Create a Supabase project at [supabase.com](https://supabase.com)
-2. Edit `d:\amorio\.env.local`:
+1. Create a project at [supabase.com](https://supabase.com)
+2. Go to SQL Editor and run the schema from `schema.sql`
+3. Enable Google OAuth in Authentication → Providers
+4. Edit `d:\amorio\.env.local`:
 
 ```env
 NEXT_PUBLIC_SUPABASE_URL=https://your-project-id.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key-here
 NEXT_PUBLIC_SOCKET_URL=http://localhost:3001
 ```
-
-3. Enable Google OAuth in Supabase Dashboard (optional)
 
 ### Step 3: Run Both Servers
 
@@ -71,24 +75,52 @@ npm start
 ### Step 4: Test the App
 
 1. Open **http://localhost:3000** in browser
-2. Click "Get Started"
+2. Click "Get Started" → Login with Google/Email
 3. Pick a vibe and click "Find Someone"
-4. **To test with another person:** Open a second browser window (or use incognito mode)
-5. Both users select the same vibe → they'll be matched!
+4. **To test matching:** Open incognito window, login as different user
+5. Both select same vibe → they'll be matched!
 
 ---
 
-## 🧪 Testing Video Calls
+## 📝 Supabase Database Setup
 
-For video calls to work, you need **two users** connected:
+Copy and run `schema.sql` in Supabase SQL Editor. It creates:
 
-1. Open Chrome normally → Go to http://localhost:3000/app
-2. Open Chrome Incognito → Go to http://localhost:3000/app
-3. Both select "Chill" vibe
-4. Both click "Find Someone"
-5. They'll be matched and can see each other's video!
+- **profiles** - User profiles with online status
+- **friendships** - Mutual friend connections
+- **messages** - Real-time chat messages
+- **call_rooms** - Video call links for friends
 
-**Note:** Camera/mic permissions must be allowed.
+Plus RLS policies and helper functions.
+
+---
+
+## 🌐 Deploy to Production
+
+### Frontend (Vercel)
+
+1. Push code to GitHub
+2. Import at [vercel.com](https://vercel.com)
+3. Add environment variables:
+   - `NEXT_PUBLIC_SUPABASE_URL`
+   - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+   - `NEXT_PUBLIC_SOCKET_URL` (Railway URL)
+4. Deploy!
+
+### Signaling Server (Railway)
+
+1. Go to [railway.app](https://railway.app)
+2. New Project → Deploy from GitHub
+3. Select the `server` folder or create separate repo
+4. (Optional) Add `REDIS_URL` for horizontal scaling
+5. Get your Railway URL
+6. Update Vercel's `NEXT_PUBLIC_SOCKET_URL`
+
+### For 20k+ Users (Scaling)
+
+1. Add Redis in Railway
+2. Set `REDIS_URL` environment variable in signaling server
+3. Deploy multiple instances - Redis handles pub/sub across them
 
 ---
 
@@ -103,82 +135,22 @@ d:\amorio\
 │   │   ├── app/                # Main app
 │   │   │   ├── page.tsx        # Vibe selector
 │   │   │   ├── call/           # Video call (WebRTC)
-│   │   │   ├── friends/        # Friends list
-│   │   │   └── chat/           # Chat interface
+│   │   │   ├── friends/        # Friends list (database)
+│   │   │   └── chat/           # Chat (realtime)
 │   │   └── auth/               # Authentication
 │   ├── components/             # UI Components
+│   │   └── FriendsPanel.tsx    # Slide-out friends panel
 │   ├── hooks/
-│   │   └── useWebRTC.ts        # WebRTC + Socket.io hook
+│   │   ├── useWebRTC.ts        # WebRTC + Socket.io
+│   │   ├── useAuth.tsx         # Auth context + profile
+│   │   └── useDatabase.ts      # Supabase data hooks
 │   └── lib/
-│       └── supabase/           # Supabase client
+│       └── supabase/           # Supabase clients
 ├── server/
-│   ├── index.js                # Socket.io signaling server
+│   ├── index.js                # Socket.io + Redis signaling
 │   └── package.json
+├── schema.sql                  # Database schema
 └── public/                     # Static assets
-```
-
----
-
-## 🌐 Deploy to Production
-
-### Frontend (Vercel)
-
-1. Push code to GitHub
-2. Go to [vercel.com](https://vercel.com)
-3. Import your repo
-4. Add environment variables
-5. Deploy!
-
-### Signaling Server (Railway)
-
-1. Go to [railway.app](https://railway.app)
-2. New Project → Deploy from GitHub
-3. Select the `server` folder
-4. Add environment variables if needed
-5. Get your Railway URL
-6. Update `NEXT_PUBLIC_SOCKET_URL` in Vercel
-
----
-
-## 📝 Supabase Database Setup
-
-Run this SQL in Supabase SQL Editor:
-
-```sql
--- Profiles table
-create table public.profiles (
-  id uuid references auth.users on delete cascade primary key,
-  display_name text,
-  avatar_url text,
-  created_at timestamp with time zone default now()
-);
-
--- Friendships
-create table public.friendships (
-  id uuid default gen_random_uuid() primary key,
-  user_id uuid references auth.users not null,
-  friend_id uuid references auth.users not null,
-  created_at timestamp with time zone default now(),
-  unique(user_id, friend_id)
-);
-
--- Messages
-create table public.messages (
-  id uuid default gen_random_uuid() primary key,
-  sender_id uuid references auth.users not null,
-  receiver_id uuid references auth.users not null,
-  content text not null,
-  created_at timestamp with time zone default now()
-);
-
--- Enable RLS
-alter table public.profiles enable row level security;
-alter table public.friendships enable row level security;
-alter table public.messages enable row level security;
-
--- Policies
-create policy "Users can view own profile" on profiles for select using (auth.uid() = id);
-create policy "Users can update own profile" on profiles for update using (auth.uid() = id);
 ```
 
 ---

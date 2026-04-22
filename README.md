@@ -155,6 +155,10 @@ d:\amorio\
 
 ---
 
+## Deployment Guide
+
+See `DEPLOYMENT.md` for the full GitHub -> Vercel + Railway setup and env var checklist.
+
 ## License
 
 MIT - Built with 💜 for a lonelier-free world

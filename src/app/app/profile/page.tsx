@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { motion } from "framer-motion";
-import { ArrowLeft, Loader2, Save, MessageCircle, Video, Users, Mail, User } from "lucide-react";
+import { ArrowLeft, Loader2, MessageCircle, Video, Users, Mail, User } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
 import { useAuth } from "@/hooks/useAuth";
@@ -131,7 +131,6 @@ export default function ProfilePage() {
                   </>
                 ) : (
                   <>
-                    <Save className="w-4 h-4 mr-2" />
                     Save Profile
                   </>
                 )}

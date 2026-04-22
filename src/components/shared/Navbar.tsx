@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import { useState, useEffect } from "react";
-import { Menu, X, User, LogOut, Video } from "lucide-react";
+import { Menu, X, User, LogOut, Video, MessageCircle } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { useAuth } from "@/hooks/useAuth";
 import { useRouter } from "next/navigation";
@@ -115,6 +115,14 @@ export function Navbar() {
                           <p className="text-xs text-dark-400 truncate">{user.email}</p>
                         </div>
                         <Link
+                          href="/app/profile"
+                          className="flex items-center gap-2 px-3 py-2 text-sm text-dark-200 hover:bg-dark-700 rounded-lg mt-1"
+                          onClick={() => setShowProfileMenu(false)}
+                        >
+                          <User className="w-4 h-4" />
+                          My Profile
+                        </Link>
+                        <Link
                           href="/app"
                           className="flex items-center gap-2 px-3 py-2 text-sm text-dark-200 hover:bg-dark-700 rounded-lg mt-1"
                           onClick={() => setShowProfileMenu(false)}
@@ -129,6 +137,14 @@ export function Navbar() {
                         >
                           <User className="w-4 h-4" />
                           My Friends
+                        </Link>
+                        <Link
+                          href="/app/chat"
+                          className="flex items-center gap-2 px-3 py-2 text-sm text-dark-200 hover:bg-dark-700 rounded-lg"
+                          onClick={() => setShowProfileMenu(false)}
+                        >
+                          <MessageCircle className="w-4 h-4" />
+                          Chats
                         </Link>
                         <button
                           onClick={handleSignOut}
@@ -201,6 +217,15 @@ export function Navbar() {
                           <Video className="w-4 h-4 mr-2" />
                           Start Call
                         </Button>
+                      </Link>
+                      <Link href="/app/profile" onClick={() => setIsOpen(false)} className="text-dark-300">
+                        My Profile
+                      </Link>
+                      <Link href="/app/friends" onClick={() => setIsOpen(false)} className="text-dark-300">
+                        My Friends
+                      </Link>
+                      <Link href="/app/chat" onClick={() => setIsOpen(false)} className="text-dark-300">
+                        Chats
                       </Link>
                       <button
                         onClick={() => { handleSignOut(); setIsOpen(false); }}

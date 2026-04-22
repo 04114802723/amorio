@@ -16,6 +16,7 @@ DROP TABLE IF EXISTS profiles CASCADE;
 -- Drop functions
 DROP FUNCTION IF EXISTS create_friendship(UUID, UUID);
 DROP FUNCTION IF EXISTS get_friends(UUID);
+DROP FUNCTION IF EXISTS create_or_get_pending_call_room(UUID, UUID);
 DROP FUNCTION IF EXISTS handle_new_user() CASCADE;
 
 -- Drop trigger
@@ -102,6 +103,11 @@ CREATE TABLE call_rooms (
 -- Index for active rooms
 CREATE INDEX idx_call_rooms_status ON call_rooms(status) WHERE status = 'pending';
 
+-- Anti-spam: only one pending room per friendship at a time
+CREATE UNIQUE INDEX uniq_pending_call_room_per_friendship
+ON call_rooms(friendship_id)
+WHERE status = 'pending';
+
 -- ============================================
 -- ROW LEVEL SECURITY (RLS) POLICIES
 -- ============================================
@@ -166,8 +172,14 @@ CREATE POLICY "Users can create call rooms for their friendships" ON call_rooms
     )
   );
 
-CREATE POLICY "Users can update call rooms they created" ON call_rooms
-  FOR UPDATE USING (auth.uid() = created_by);
+CREATE POLICY "Users can update call rooms for their friendships" ON call_rooms
+  FOR UPDATE USING (
+    EXISTS (
+      SELECT 1 FROM friendships f
+      WHERE f.id = call_rooms.friendship_id
+      AND (f.user1_id = auth.uid() OR f.user2_id = auth.uid())
+    )
+  );
 
 -- ============================================
 -- HELPER FUNCTIONS
@@ -233,6 +245,65 @@ BEGIN
   JOIN profiles p ON p.id = CASE WHEN f.user1_id = user_id THEN f.user2_id ELSE f.user1_id END
   WHERE f.user1_id = user_id OR f.user2_id = user_id
   ORDER BY p.is_online DESC, p.last_seen DESC;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Function to create or reuse a pending friend call room (anti-spam)
+CREATE OR REPLACE FUNCTION create_or_get_pending_call_room(target_friendship_id UUID, requester_id UUID)
+RETURNS TABLE (
+  room_id UUID,
+  room_code TEXT,
+  room_status TEXT,
+  room_created_at TIMESTAMPTZ,
+  room_is_new BOOLEAN
+) AS $$
+DECLARE
+  existing_room RECORD;
+  is_participant BOOLEAN;
+BEGIN
+  IF requester_id IS NULL OR auth.uid() IS DISTINCT FROM requester_id THEN
+    RAISE EXCEPTION 'Unauthorized call room request';
+  END IF;
+
+  SELECT EXISTS (
+    SELECT 1 FROM friendships f
+    WHERE f.id = target_friendship_id
+    AND (f.user1_id = requester_id OR f.user2_id = requester_id)
+  ) INTO is_participant;
+
+  IF NOT is_participant THEN
+    RAISE EXCEPTION 'You are not part of this friendship';
+  END IF;
+
+  SELECT id, room_code, status, created_at
+  INTO existing_room
+  FROM call_rooms
+  WHERE friendship_id = target_friendship_id
+  AND status = 'pending'
+  ORDER BY created_at DESC
+  LIMIT 1;
+
+  IF FOUND THEN
+    RETURN QUERY SELECT
+      existing_room.id,
+      existing_room.room_code,
+      existing_room.status,
+      existing_room.created_at,
+      false;
+    RETURN;
+  END IF;
+
+  INSERT INTO call_rooms (friendship_id, created_by, room_code, status)
+  VALUES (
+    target_friendship_id,
+    requester_id,
+    'call_' || replace(gen_random_uuid()::text, '-', ''),
+    'pending'
+  )
+  RETURNING id, call_rooms.room_code, call_rooms.status, call_rooms.created_at
+  INTO room_id, room_code, room_status, room_created_at;
+
+  RETURN QUERY SELECT room_id, room_code, room_status, room_created_at, true;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 

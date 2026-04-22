@@ -18,6 +18,7 @@ const ICE_SERVERS = {
 
 interface UseWebRTCProps {
   vibe: string;
+  roomCode?: string | null;
   userId?: string;
   onMatched?: (partnerUserId?: string, crossVibe?: boolean) => void;
   onPartnerLeft?: () => void;
@@ -29,6 +30,7 @@ interface UseWebRTCProps {
 
 export function useWebRTC({
   vibe,
+  roomCode,
   userId,
   onMatched,
   onPartnerLeft,
@@ -40,6 +42,7 @@ export function useWebRTC({
   const [isConnected, setIsConnected] = useState(false);
   const [isWaiting, setIsWaiting] = useState(false);
   const [isInCall, setIsInCall] = useState(false);
+  const [waitingMessage, setWaitingMessage] = useState("Looking for someone...");
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -69,10 +72,27 @@ export function useWebRTC({
 
     socketRef.current.on("waiting", () => {
       setIsWaiting(true);
+      setWaitingMessage("Finding your match...");
+    });
+
+    socketRef.current.on("waiting-room", ({ message }) => {
+      setIsWaiting(true);
+      setWaitingMessage(message || "Waiting for your friend to join...");
     });
 
     socketRef.current.on("still-waiting", ({ message }) => {
       console.log("Still waiting:", message);
+      setWaitingMessage(message || "Still searching...");
+    });
+
+    socketRef.current.on("queue-error", ({ message }) => {
+      setError(message || "Could not join matching queue.");
+      setIsWaiting(false);
+    });
+
+    socketRef.current.on("room-error", ({ message }) => {
+      setError(message || "Could not join call room.");
+      setIsWaiting(false);
     });
 
     socketRef.current.on("matched", async ({ roomId, isInitiator, partnerUserId: pId, crossVibe }) => {
@@ -80,6 +100,7 @@ export function useWebRTC({
       roomIdRef.current = roomId;
       setPartnerUserId(pId || null);
       setIsWaiting(false);
+      setWaitingMessage("");
       setIsInCall(true);
       onMatched?.(pId, crossVibe);
 
@@ -244,6 +265,7 @@ export function useWebRTC({
   // Join queue
   const joinQueue = useCallback(async () => {
     try {
+      setError(null);
       await startLocalStream();
       socketRef.current?.emit("join-queue", { vibe, userId });
     } catch (err) {
@@ -251,13 +273,39 @@ export function useWebRTC({
     }
   }, [vibe, userId, startLocalStream]);
 
+  const joinRoomCall = useCallback(async () => {
+    if (!roomCode) return;
+
+    try {
+      setError(null);
+      await startLocalStream();
+      socketRef.current?.emit("join-room-call", { roomCode, userId });
+    } catch (err) {
+      console.error("Failed to join call room:", err);
+    }
+  }, [roomCode, userId, startLocalStream]);
+
+  // Cleanup call
+  const cleanupCall = useCallback(() => {
+    peerConnectionRef.current?.close();
+    peerConnectionRef.current = null;
+    roomIdRef.current = null;
+    setRemoteStream(null);
+    setPartnerUserId(null);
+    setIsInCall(false);
+  }, []);
+
   // Skip current call
   const skip = useCallback(() => {
     if (roomIdRef.current) {
-      socketRef.current?.emit("skip", { roomId: roomIdRef.current });
+      if (roomCode) {
+        socketRef.current?.emit("leave-call", { roomId: roomIdRef.current });
+      } else {
+        socketRef.current?.emit("skip", { roomId: roomIdRef.current });
+      }
     }
     cleanupCall();
-  }, []);
+  }, [cleanupCall, roomCode]);
 
   // Send friend request
   const sendFriendRequest = useCallback(() => {
@@ -304,18 +352,11 @@ export function useWebRTC({
     return false;
   }, []);
 
-  // Cleanup call
-  const cleanupCall = useCallback(() => {
-    peerConnectionRef.current?.close();
-    peerConnectionRef.current = null;
-    roomIdRef.current = null;
-    setRemoteStream(null);
-    setPartnerUserId(null);
-    setIsInCall(false);
-  }, []);
-
   // Stop all streams
   const stopStreams = useCallback(() => {
+    if (roomIdRef.current) {
+      socketRef.current?.emit("leave-call", { roomId: roomIdRef.current });
+    }
     localStreamRef.current?.getTracks().forEach((track) => track.stop());
     localStreamRef.current = null;
     setLocalStream(null);
@@ -329,8 +370,10 @@ export function useWebRTC({
     localStream,
     remoteStream,
     error,
+    waitingMessage,
     partnerUserId,
     joinQueue,
+    joinRoomCall,
     skip,
     sendFriendRequest,
     acceptFriendRequest,

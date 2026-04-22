@@ -14,175 +14,457 @@ const io = new Server(httpServer, {
     origin: ["http://localhost:3000", "https://amorio.vercel.app", "https://amorio-*.vercel.app", /\.vercel\.app$/],
     methods: ["GET", "POST"],
   },
-  // Optimize for high concurrency
+  // Tuned for high concurrency.
   pingTimeout: 60000,
   pingInterval: 25000,
   transports: ["websocket", "polling"],
 });
 
-// Redis setup for horizontal scaling (optional - falls back to memory if no Redis)
+// Redis setup for horizontal scaling (optional - falls back to memory if no Redis).
 const REDIS_URL = process.env.REDIS_URL;
 if (REDIS_URL) {
   const pubClient = createClient({ url: REDIS_URL });
   const subClient = pubClient.duplicate();
-  
+
   Promise.all([pubClient.connect(), subClient.connect()])
     .then(() => {
       io.adapter(createAdapter(pubClient, subClient));
-      console.log("✅ Redis adapter connected for horizontal scaling");
+      console.log("Redis adapter connected for horizontal scaling");
     })
     .catch((err) => {
-      console.log("⚠️ Redis not available, using memory adapter:", err.message);
+      console.log("Redis not available, using memory adapter:", err.message);
     });
 }
 
-// Store waiting users by vibe (in-memory, use Redis in production for multi-instance)
-const waitingUsers = {
+const VIBE_ORDER = ["chill", "deep", "funny", "chaotic"];
+const WAITING_QUEUE = {
   chill: [],
   deep: [],
   funny: [],
   chaotic: [],
 };
 
-// Vibe priority order for cross-vibe matching
-const VIBE_ORDER = ["chill", "deep", "funny", "chaotic"];
+// socketId -> { socketId, userId, vibe, joinedAt }
+const waitingEntries = new Map();
 
-// Cross-vibe matching timeout (ms)
-const CROSS_VIBE_TIMEOUT = 10000; // 10 seconds
-
-// Store active calls
-const activeCalls = new Map();
-
-// Store user socket mappings with their user IDs
+// socketId -> { userId, vibe }
 const userSockets = new Map();
 
-// Store pending cross-vibe timeouts
+// roomId -> { users: [{ socketId, userId }], vibe, crossVibe, startedAt, mode, roomCode? }
+const activeCalls = new Map();
+
+// roomCode -> { participants: [{ socketId, userId, joinedAt }], createdAt }
+const callLinkRooms = new Map();
+
+// socketId -> timeout
 const crossVibeTimeouts = new Map();
 
-// Find a partner in any vibe queue (cross-vibe matching)
-function findPartnerInAnyVibe(excludeVibe) {
-  for (const vibe of VIBE_ORDER) {
-    if (vibe !== excludeVibe && waitingUsers[vibe].length > 0) {
-      return { partner: waitingUsers[vibe].shift(), vibe };
+// Match priority order for cross-vibe fallback.
+const CROSS_VIBE_TIMEOUT = 10000;
+
+function sanitizeVibe(vibe) {
+  return VIBE_ORDER.includes(vibe) ? vibe : "chill";
+}
+
+function generateRoomId(prefix = "room") {
+  return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
+}
+
+function clearCrossVibeTimeout(socketId) {
+  const timeout = crossVibeTimeouts.get(socketId);
+  if (timeout) {
+    clearTimeout(timeout);
+    crossVibeTimeouts.delete(socketId);
+  }
+}
+
+function enqueueWaiting(entry) {
+  waitingEntries.set(entry.socketId, entry);
+  WAITING_QUEUE[entry.vibe].push(entry.socketId);
+}
+
+function dequeueNextWaiting(vibe, excludeSocketId) {
+  const queue = WAITING_QUEUE[vibe];
+  while (queue.length > 0) {
+    const candidateSocketId = queue.shift();
+    if (candidateSocketId === excludeSocketId) {
+      continue;
+    }
+
+    const candidate = waitingEntries.get(candidateSocketId);
+    if (candidate) {
+      waitingEntries.delete(candidateSocketId);
+      return candidate;
     }
   }
   return null;
 }
 
-// Match two users
-function matchUsers(socket, partner, vibe, crossVibe = false) {
-  const roomId = `room_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-  
-  // Join both to the room
-  socket.join(roomId);
-  partner.socket.join(roomId);
-  
-  // Store active call with user IDs for friendship
+function removeWaitingEntry(socketId) {
+  waitingEntries.delete(socketId);
+  clearCrossVibeTimeout(socketId);
+}
+
+function findCrossVibePartner(selectedVibe, excludeSocketId) {
+  for (const vibe of VIBE_ORDER) {
+    if (vibe === selectedVibe) {
+      continue;
+    }
+    const partner = dequeueNextWaiting(vibe, excludeSocketId);
+    if (partner) {
+      return { partner, vibe };
+    }
+  }
+  return null;
+}
+
+function getUserId(socketId) {
+  return userSockets.get(socketId)?.userId;
+}
+
+function emitMatched(socketA, socketB, roomId, options) {
+  const userA = getUserId(socketA.id);
+  const userB = getUserId(socketB.id);
+  const isAInitiator = options.initiatorSocketId === socketA.id;
+
+  socketA.emit("matched", {
+    roomId,
+    isInitiator: isAInitiator,
+    partnerUserId: userB,
+    crossVibe: options.crossVibe,
+  });
+
+  socketB.emit("matched", {
+    roomId,
+    isInitiator: !isAInitiator,
+    partnerUserId: userA,
+    crossVibe: options.crossVibe,
+  });
+}
+
+function matchUsers(socketA, socketB, vibe, options = {}) {
+  const roomId = options.roomId || generateRoomId(options.mode === "friend-link" ? "link" : "room");
+  const crossVibe = Boolean(options.crossVibe);
+  const initiatorSocketId = options.initiatorSocketId || socketA.id;
+
+  removeWaitingEntry(socketA.id);
+  removeWaitingEntry(socketB.id);
+
+  socketA.join(roomId);
+  socketB.join(roomId);
+
   activeCalls.set(roomId, {
     users: [
-      { socketId: socket.id, oderId: userSockets.get(socket.id)?.userId },
-      { socketId: partner.socket.id, oderId: partner.userId }
+      { socketId: socketA.id, userId: getUserId(socketA.id) },
+      { socketId: socketB.id, userId: getUserId(socketB.id) },
     ],
     vibe,
     crossVibe,
     startedAt: Date.now(),
+    mode: options.mode || "random",
+    roomCode: options.roomCode,
+    friendshipConfirmed: false,
+    friendRequests: new Set(),
   });
-  
-  // Notify both users they're matched
-  socket.emit("matched", { 
-    roomId, 
-    isInitiator: true,
-    partnerUserId: partner.userId,
-    crossVibe
+
+  emitMatched(socketA, socketB, roomId, {
+    initiatorSocketId,
+    crossVibe,
   });
-  partner.socket.emit("matched", { 
-    roomId, 
-    isInitiator: false,
-    partnerUserId: userSockets.get(socket.id)?.userId,
-    crossVibe
+
+  console.log(
+    `Matched ${socketA.id} with ${socketB.id} in ${roomId}${crossVibe ? " (cross-vibe)" : ""}`
+  );
+
+  return roomId;
+}
+
+function removeSocketFromCallLinkRoom(roomCode, socketId) {
+  if (!roomCode) {
+    return;
+  }
+
+  const state = callLinkRooms.get(roomCode);
+  if (!state) {
+    return;
+  }
+
+  state.participants = state.participants.filter((participant) => participant.socketId !== socketId);
+  if (state.participants.length === 0) {
+    callLinkRooms.delete(roomCode);
+  }
+}
+
+function teardownCall(roomId, leavingSocketId) {
+  const call = activeCalls.get(roomId);
+  if (!call) {
+    return;
+  }
+
+  activeCalls.delete(roomId);
+
+  const remainingUsers = call.users.filter((user) => user.socketId !== leavingSocketId);
+  remainingUsers.forEach((remainingUser) => {
+    const remainingSocket = io.sockets.sockets.get(remainingUser.socketId);
+    if (remainingSocket) {
+      remainingSocket.emit("partner-left");
+    }
   });
-  
-  console.log(`Matched ${socket.id} with ${partner.socket.id} in room ${roomId}${crossVibe ? ' (cross-vibe)' : ''}`);
+
+  if (call.mode === "friend-link") {
+    removeSocketFromCallLinkRoom(call.roomCode, leavingSocketId);
+
+    if (remainingUsers.length === 1 && call.roomCode) {
+      const state = callLinkRooms.get(call.roomCode);
+      if (state) {
+        const stillInRoom = state.participants.some(
+          (participant) => participant.socketId === remainingUsers[0].socketId
+        );
+        if (stillInRoom) {
+          const remainingSocket = io.sockets.sockets.get(remainingUsers[0].socketId);
+          if (remainingSocket) {
+            remainingSocket.emit("waiting-room", {
+              message: "Waiting for your friend to rejoin this call link...",
+            });
+          }
+        }
+      }
+    }
+  }
+}
+
+function handleSocketLeaveActiveCalls(socketId) {
+  for (const [roomId, call] of activeCalls.entries()) {
+    if (call.users.some((user) => user.socketId === socketId)) {
+      teardownCall(roomId, socketId);
+      break;
+    }
+  }
+}
+
+function removeSocketFromAllCallLinkRooms(socketId) {
+  for (const [roomCode, state] of callLinkRooms.entries()) {
+    state.participants = state.participants.filter((participant) => participant.socketId !== socketId);
+    if (state.participants.length === 0) {
+      callLinkRooms.delete(roomCode);
+    }
+  }
+}
+
+function getWaitingStats() {
+  const stats = {
+    chill: 0,
+    deep: 0,
+    funny: 0,
+    chaotic: 0,
+    total: 0,
+  };
+
+  for (const entry of waitingEntries.values()) {
+    if (stats[entry.vibe] !== undefined) {
+      stats[entry.vibe] += 1;
+      stats.total += 1;
+    }
+  }
+
+  return stats;
 }
 
 io.on("connection", (socket) => {
   console.log("User connected:", socket.id, "| Total:", io.engine.clientsCount);
 
-  // User joins queue with selected vibe
+  // User joins random matching queue with selected vibe.
   socket.on("join-queue", ({ vibe, userId }) => {
-    const selectedVibe = vibe || "chill";
+    if (!userId) {
+      socket.emit("queue-error", {
+        message: "You must be logged in before entering random matching.",
+      });
+      return;
+    }
+
+    const selectedVibe = sanitizeVibe(vibe);
     console.log(`User ${socket.id} (${userId}) joining ${selectedVibe} queue`);
 
     userSockets.set(socket.id, { vibe: selectedVibe, userId });
 
-    // Check if someone is waiting in this vibe
-    if (waitingUsers[selectedVibe] && waitingUsers[selectedVibe].length > 0) {
-      const partner = waitingUsers[selectedVibe].shift();
-      matchUsers(socket, partner, selectedVibe);
-    } else {
-      // Add to waiting queue
-      if (!waitingUsers[selectedVibe]) waitingUsers[selectedVibe] = [];
-      waitingUsers[selectedVibe].push({ socket, userId });
-      socket.emit("waiting");
-      console.log(`User ${socket.id} waiting in ${selectedVibe} queue (${waitingUsers[selectedVibe].length} waiting)`);
-      
-      // Set cross-vibe timeout
-      const timeout = setTimeout(() => {
-        // Check if still waiting
-        const stillWaiting = waitingUsers[selectedVibe].find(u => u.socket.id === socket.id);
-        if (stillWaiting) {
-          // Remove from current queue
-          waitingUsers[selectedVibe] = waitingUsers[selectedVibe].filter(u => u.socket.id !== socket.id);
-          
-          // Try to find partner in any other vibe
-          const crossVibeMatch = findPartnerInAnyVibe(selectedVibe);
-          if (crossVibeMatch) {
-            matchUsers(socket, crossVibeMatch.partner, crossVibeMatch.vibe, true);
-            socket.emit("cross-vibe-match", { originalVibe: selectedVibe, matchedVibe: crossVibeMatch.vibe });
-          } else {
-            // No match found, put back in queue
-            waitingUsers[selectedVibe].push({ socket, userId });
-            socket.emit("still-waiting", { message: "Looking for anyone to match with..." });
-          }
-        }
-        crossVibeTimeouts.delete(socket.id);
-      }, CROSS_VIBE_TIMEOUT);
-      
-      crossVibeTimeouts.set(socket.id, timeout);
+    removeWaitingEntry(socket.id);
+
+    const sameVibePartner = dequeueNextWaiting(selectedVibe, socket.id);
+    if (sameVibePartner) {
+      const partnerSocket = io.sockets.sockets.get(sameVibePartner.socketId);
+      if (partnerSocket) {
+        matchUsers(socket, partnerSocket, selectedVibe, {
+          mode: "random",
+          crossVibe: false,
+          initiatorSocketId: socket.id,
+        });
+        return;
+      }
     }
+
+    enqueueWaiting({
+      socketId: socket.id,
+      userId,
+      vibe: selectedVibe,
+      joinedAt: Date.now(),
+    });
+    socket.emit("waiting", {
+      mode: "random",
+    });
+    console.log(`User ${socket.id} waiting in ${selectedVibe} queue`);
+
+    const timeout = setTimeout(() => {
+      const stillWaiting = waitingEntries.get(socket.id);
+      if (stillWaiting) {
+        const crossVibeMatch = findCrossVibePartner(selectedVibe, socket.id);
+        if (crossVibeMatch && crossVibeMatch.partner) {
+          const partnerSocket = io.sockets.sockets.get(crossVibeMatch.partner.socketId);
+          if (partnerSocket) {
+            matchUsers(socket, partnerSocket, crossVibeMatch.vibe, {
+              mode: "random",
+              crossVibe: true,
+              initiatorSocketId: socket.id,
+            });
+
+            socket.emit("cross-vibe-match", {
+              originalVibe: selectedVibe,
+              matchedVibe: crossVibeMatch.vibe,
+            });
+
+            partnerSocket.emit("cross-vibe-match", {
+              originalVibe: crossVibeMatch.vibe,
+              matchedVibe: selectedVibe,
+            });
+          }
+        } else {
+          socket.emit("still-waiting", { message: "Looking for anyone to match with..." });
+        }
+      }
+
+      crossVibeTimeouts.delete(socket.id);
+    }, CROSS_VIBE_TIMEOUT);
+
+    crossVibeTimeouts.set(socket.id, timeout);
   });
 
-  // WebRTC signaling - forward offer
+  // User joins a specific friend call link room.
+  socket.on("join-room-call", ({ roomCode, userId }) => {
+    if (!roomCode || !userId) {
+      socket.emit("room-error", {
+        message: "Invalid call room or unauthorized user.",
+      });
+      return;
+    }
+
+    userSockets.set(socket.id, {
+      userId,
+      vibe: userSockets.get(socket.id)?.vibe || "chill",
+    });
+
+    const existingState = callLinkRooms.get(roomCode) || {
+      participants: [],
+      createdAt: Date.now(),
+    };
+
+    const alreadyJoined = existingState.participants.some(
+      (participant) => participant.socketId === socket.id
+    );
+    if (alreadyJoined) {
+      return;
+    }
+
+    const sameUserAlreadyInRoom = existingState.participants.some(
+      (participant) => participant.userId === userId
+    );
+    if (sameUserAlreadyInRoom) {
+      socket.emit("room-error", {
+        message: "You already joined this call in another tab/device.",
+      });
+      return;
+    }
+
+    if (existingState.participants.length >= 2) {
+      socket.emit("room-error", {
+        message: "This call link is full.",
+      });
+      return;
+    }
+
+    const roomId = `link_${roomCode}`;
+    socket.join(roomId);
+
+    existingState.participants.push({
+      socketId: socket.id,
+      userId,
+      joinedAt: Date.now(),
+    });
+
+    callLinkRooms.set(roomCode, existingState);
+
+    if (existingState.participants.length === 1) {
+      socket.emit("waiting-room", {
+        mode: "friend-link",
+        message: "Waiting for your friend to open the call link...",
+      });
+      return;
+    }
+
+    const participants = [...existingState.participants].sort((a, b) => a.joinedAt - b.joinedAt);
+    const firstSocket = io.sockets.sockets.get(participants[0].socketId);
+    const secondSocket = io.sockets.sockets.get(participants[1].socketId);
+
+    if (!firstSocket || !secondSocket) {
+      socket.emit("room-error", {
+        message: "Could not connect room participants. Please retry.",
+      });
+      return;
+    }
+
+    matchUsers(firstSocket, secondSocket, "chill", {
+      mode: "friend-link",
+      roomId,
+      roomCode,
+      crossVibe: false,
+      initiatorSocketId: participants[0].socketId,
+    });
+  });
+
+  // WebRTC signaling: forward offer.
   socket.on("offer", ({ roomId, offer }) => {
     socket.to(roomId).emit("offer", { offer });
   });
 
-  // WebRTC signaling - forward answer
+  // WebRTC signaling: forward answer.
   socket.on("answer", ({ roomId, answer }) => {
     socket.to(roomId).emit("answer", { answer });
   });
 
-  // WebRTC signaling - forward ICE candidate
+  // WebRTC signaling: forward ICE candidate.
   socket.on("ice-candidate", ({ roomId, candidate }) => {
     socket.to(roomId).emit("ice-candidate", { candidate });
   });
 
-  // User skips current call
   socket.on("skip", ({ roomId }) => {
-    socket.to(roomId).emit("partner-left");
-    socket.leave(roomId);
-    activeCalls.delete(roomId);
-    console.log(`User ${socket.id} skipped from room ${roomId}`);
+    if (!roomId) {
+      return;
+    }
+    teardownCall(roomId, socket.id);
+    console.log(`User ${socket.id} skipped room ${roomId}`);
   });
 
-  // Friend request during call - includes both user IDs
+  socket.on("leave-call", ({ roomId }) => {
+    if (!roomId) {
+      return;
+    }
+    teardownCall(roomId, socket.id);
+  });
+
+  // Friend request during call.
   socket.on("friend-request", ({ roomId, userId }) => {
     const call = activeCalls.get(roomId);
     if (call) {
-      // Store that this user sent a friend request
-      if (!call.friendRequests) call.friendRequests = new Set();
       call.friendRequests.add(userId);
-      
+
       socket.to(roomId).emit("friend-request-received", { 
         from: socket.id,
         fromUserId: userId 
@@ -190,89 +472,77 @@ io.on("connection", (socket) => {
     }
   });
 
-  // Accept friend request - confirm friendship with both user IDs
-  socket.on("friend-accept", ({ roomId, oderId }) => {
+  // Confirm friendship when one user requests and the other accepts.
+  socket.on("friend-accept", ({ roomId, userId }) => {
     const call = activeCalls.get(roomId);
-    if (call) {
-      // Get both user IDs
-      const user1 = call.users.find(u => u.socketId === socket.id);
-      const user2 = call.users.find(u => u.socketId !== socket.id);
-      
-      socket.to(roomId).emit("friend-accepted", { userId: userId });
-      io.to(roomId).emit("friendship-confirmed", {
-        user1Id: user1?.userId,
-        user2Id: user2?.userId
-      });
+    if (!call || call.friendshipConfirmed || !userId) {
+      return;
     }
+
+    socket.to(roomId).emit("friend-accepted", { userId });
+
+    const accepter = call.users.find((entry) => entry.userId === userId);
+    const otherUser = call.users.find((entry) => entry.userId !== userId);
+    if (!accepter || !otherUser) {
+      return;
+    }
+
+    const requestedByOther = call.friendRequests.has(otherUser.userId);
+    if (!requestedByOther) {
+      return;
+    }
+
+    call.friendshipConfirmed = true;
+    io.to(roomId).emit("friendship-confirmed", {
+      user1Id: accepter.userId,
+      user2Id: otherUser.userId,
+    });
   });
 
-  // Reaction bomb
+  // Reaction messages.
   socket.on("reaction", ({ roomId, emoji }) => {
     socket.to(roomId).emit("reaction", { emoji });
   });
 
-  // Handle disconnect
+  // Handle disconnect.
   socket.on("disconnect", () => {
     console.log("User disconnected:", socket.id, "| Total:", io.engine.clientsCount);
 
-    // Clear cross-vibe timeout
-    const timeout = crossVibeTimeouts.get(socket.id);
-    if (timeout) {
-      clearTimeout(timeout);
-      crossVibeTimeouts.delete(socket.id);
-    }
-
-    // Remove from waiting queues
-    Object.keys(waitingUsers).forEach((vibe) => {
-      waitingUsers[vibe] = waitingUsers[vibe].filter(
-        (user) => user.socket.id !== socket.id
-      );
-    });
-
-    // Notify partner if in active call
-    activeCalls.forEach((call, roomId) => {
-      const isInCall = call.users.some(u => u.socketId === socket.id);
-      if (isInCall) {
-        socket.to(roomId).emit("partner-left");
-        activeCalls.delete(roomId);
-      }
-    });
+    removeWaitingEntry(socket.id);
+    handleSocketLeaveActiveCalls(socket.id);
+    removeSocketFromAllCallLinkRooms(socket.id);
 
     userSockets.delete(socket.id);
   });
 });
 
-// Health check endpoint with stats
+// Health check endpoint with stats.
 app.get("/", (req, res) => {
+  const waiting = getWaitingStats();
   const stats = {
     status: "AMORIO Signaling Server Running",
     connections: io.engine.clientsCount,
-    waiting: {
-      chill: waitingUsers.chill.length,
-      deep: waitingUsers.deep.length,
-      funny: waitingUsers.funny.length,
-      chaotic: waitingUsers.chaotic.length,
-      total: Object.values(waitingUsers).reduce((a, b) => a + b.length, 0)
-    },
+    waiting,
     activeCalls: activeCalls.size,
-    redis: !!REDIS_URL
+    redis: !!REDIS_URL,
   };
   res.json(stats);
 });
 
-// Stats endpoint for monitoring
+// Stats endpoint for monitoring.
 app.get("/stats", (req, res) => {
+  const waiting = getWaitingStats();
   res.json({
     connections: io.engine.clientsCount,
-    waiting: Object.values(waitingUsers).reduce((a, b) => a + b.length, 0),
+    waiting: waiting.total,
     activeCalls: activeCalls.size,
-    uptime: process.uptime()
+    uptime: process.uptime(),
   });
 });
 
 const PORT = process.env.PORT || 3001;
 httpServer.listen(PORT, () => {
-  console.log(`🚀 AMORIO Signaling Server running on port ${PORT}`);
-  console.log(`📊 Health check: http://localhost:${PORT}/`);
-  console.log(`🔌 Redis: ${REDIS_URL ? 'Enabled' : 'Disabled (single instance mode)'}`);
+  console.log(`AMORIO Signaling Server running on port ${PORT}`);
+  console.log(`Health check: http://localhost:${PORT}/`);
+  console.log(`Redis: ${REDIS_URL ? "Enabled" : "Disabled (single instance mode)"}`);
 });

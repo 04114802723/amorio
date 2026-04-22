@@ -4,14 +4,15 @@ import { useState, useRef, useEffect, Suspense } from "react";
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/Button";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams, useRouter } from "next/navigation";
 import { ArrowLeft, Video, Send, Phone, X, Loader2 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
-import { useFriends, useMessages, Friend } from "@/hooks/useDatabase";
+import { useFriends, useMessages } from "@/hooks/useDatabase";
 import { createClient } from "@/lib/supabase/client";
 
 function ChatPageContent() {
   const searchParams = useSearchParams();
+  const router = useRouter();
   const friendshipIdFromUrl = searchParams.get("friendship");
   
   const { user, loading: authLoading } = useAuth();
@@ -47,28 +48,35 @@ function ChatPageContent() {
   };
 
   const handleStartCall = async () => {
-    if (!selectedFriend || !user) return;
-    
-    // Create a call room
-    const roomCode = `call_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    
-    const { error } = await supabase
-      .from('call_rooms')
-      .insert({
-        friendship_id: selectedFriendshipId,
-        created_by: user.id,
-        room_code: roomCode,
-        status: 'pending'
-      });
+    if (!selectedFriend || !user || !selectedFriendshipId) return;
 
-    if (!error) {
-      // Send message with call link
-      await sendMessage(`📹 Video call started! Join here: /app/call?room=${roomCode}`, user.id);
+    const { data, error } = await supabase.rpc("create_or_get_pending_call_room", {
+      target_friendship_id: selectedFriendshipId,
+      requester_id: user.id,
+    });
+
+    if (!error && data && data.length > 0) {
+      const room = data[0];
+      const roomCode = room.room_code;
+      const callPath = `/app/call?room=${encodeURIComponent(roomCode)}`;
+      const callUrl = `${window.location.origin}${callPath}`;
+
+      if (room.room_is_new) {
+        await sendMessage(`📹 Video call invite: ${callUrl}`, user.id);
+      }
+
       setShowCallModal(false);
-      // Navigate to call
-      window.location.href = `/app/call?room=${roomCode}&friend=${selectedFriendshipId}`;
+      window.location.href = callPath;
     }
   };
+
+  useEffect(() => {
+    if (!authLoading && !user) {
+      const search = searchParams.toString();
+      const redirect = search ? `/app/chat?${search}` : "/app/chat";
+      router.push(`/auth/login?redirect=${encodeURIComponent(redirect)}`);
+    }
+  }, [authLoading, user, router, searchParams]);
 
   if (authLoading || friendsLoading) {
     return (
@@ -216,7 +224,7 @@ function ChatPageContent() {
                         : "glass text-white"
                     }`}
                   >
-                    <p>{msg.content}</p>
+                    <p>{renderMessageWithLinks(msg.content)}</p>
                     <p className={`text-xs mt-1 ${msg.sender_id === user.id ? "text-white/70" : "text-dark-400"}`}>
                       {formatTime(msg.created_at)}
                     </p>
@@ -308,6 +316,29 @@ function ChatPageContent() {
 function formatTime(dateStr: string): string {
   const date = new Date(dateStr);
   return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+function renderMessageWithLinks(content: string) {
+  const urlRegex = /(https?:\/\/[^\s]+|\/app\/call\?room=[^\s]+)/g;
+  const parts = content.split(urlRegex);
+
+  return parts.map((part, index) => {
+    const isUrl = /^https?:\/\//.test(part) || /^\/app\/call\?room=/.test(part);
+    if (!isUrl) {
+      return <span key={`text-${index}`}>{part}</span>;
+    }
+
+    const href = part.startsWith("http") ? part : part;
+    return (
+      <a
+        key={`link-${index}`}
+        href={href}
+        className="underline text-primary-300 hover:text-primary-200 break-all"
+      >
+        Join call
+      </a>
+    );
+  });
 }
 
 export default function ChatPage() {

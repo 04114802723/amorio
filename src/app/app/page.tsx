@@ -64,6 +64,9 @@ export default function AppPage() {
             <ArrowLeft className="w-5 h-5" />Back
           </Link>
           <div className="flex items-center gap-4">
+            <Link href="/app/profile" className="text-dark-400 hover:text-white transition-colors" title="Profile">
+              <User className="w-5 h-5" />
+            </Link>
             <Link href="/app/friends" className="text-dark-400 hover:text-white transition-colors" title="Friends">
               <Users className="w-5 h-5" />
             </Link>
@@ -98,6 +101,27 @@ export default function AppPage() {
                     </p>
                     <p className="text-xs text-dark-400 truncate">{user.email}</p>
                   </div>
+                  <Link
+                    href="/app/profile"
+                    className="w-full flex items-center gap-2 px-3 py-2 text-sm text-dark-200 hover:bg-dark-700 rounded-lg mt-1"
+                  >
+                    <User className="w-4 h-4" />
+                    My Profile
+                  </Link>
+                  <Link
+                    href="/app/friends"
+                    className="w-full flex items-center gap-2 px-3 py-2 text-sm text-dark-200 hover:bg-dark-700 rounded-lg"
+                  >
+                    <Users className="w-4 h-4" />
+                    Friends
+                  </Link>
+                  <Link
+                    href="/app/chat"
+                    className="w-full flex items-center gap-2 px-3 py-2 text-sm text-dark-200 hover:bg-dark-700 rounded-lg"
+                  >
+                    <MessageCircle className="w-4 h-4" />
+                    Chats
+                  </Link>
                   <button
                     onClick={() => {
                       signOut();
@@ -122,7 +146,7 @@ export default function AppPage() {
               </motion.div>
 
               <h1 className="text-3xl md:text-4xl font-bold text-white mb-2">Pick Your Vibe</h1>
-              <p className="text-dark-400 mb-8">We'll match you with someone in the same mood</p>
+              <p className="text-dark-400 mb-8">We try your selected mood first, then broaden to any mood so you match faster</p>
 
               <div className="grid grid-cols-2 gap-4 mb-8">
                 {vibes.map((vibe) => (

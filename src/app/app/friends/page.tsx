@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/Button";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { ArrowLeft, Video, MessageCircle, Users, Search, Loader2 } from "lucide-react";
 import { useFriends } from "@/hooks/useDatabase";
 import { useAuth } from "@/hooks/useAuth";
@@ -12,6 +13,7 @@ import { createClient } from "@/lib/supabase/client";
 export default function FriendsPage() {
   const { user, loading: authLoading } = useAuth();
   const { friends, loading: friendsLoading } = useFriends(user?.id);
+  const router = useRouter();
   const [searchQuery, setSearchQuery] = useState("");
   const supabase = createClient();
 
@@ -21,26 +23,23 @@ export default function FriendsPage() {
 
   const handleStartCall = async (friendshipId: string) => {
     if (!user) return;
-    
-    // Create a call room
-    const roomCode = `call_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    
-    const { data, error } = await supabase
-      .from('call_rooms')
-      .insert({
-        friendship_id: friendshipId,
-        created_by: user.id,
-        room_code: roomCode,
-        status: 'pending'
-      })
-      .select()
-      .single();
 
-    if (!error && data) {
-      // Navigate to call with room code
-      window.location.href = `/app/call?room=${roomCode}&friend=${friendshipId}`;
+    const { data, error } = await supabase.rpc("create_or_get_pending_call_room", {
+      target_friendship_id: friendshipId,
+      requester_id: user.id,
+    });
+
+    if (!error && data && data.length > 0) {
+      const roomCode = data[0].room_code;
+      window.location.href = `/app/call?room=${encodeURIComponent(roomCode)}`;
     }
   };
+
+  useEffect(() => {
+    if (!authLoading && !user) {
+      router.push(`/auth/login?redirect=${encodeURIComponent("/app/friends")}`);
+    }
+  }, [authLoading, user, router]);
 
   if (authLoading) {
     return (

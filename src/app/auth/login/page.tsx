@@ -11,6 +11,7 @@ import { Suspense } from "react";
 
 function LoginContent() {
   const searchParams = useSearchParams();
+  const redirectTo = searchParams.get("redirect") || "/app";
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -34,7 +35,7 @@ function LoginContent() {
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
-        redirectTo: `${window.location.origin}/auth/callback`,
+        redirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(redirectTo)}`,
       },
     });
     if (error) {
@@ -62,13 +63,13 @@ function LoginContent() {
           }
           return;
         }
-        window.location.href = "/app";
+        window.location.href = redirectTo;
       } else {
         const { data, error } = await supabase.auth.signUp({
           email,
           password,
           options: { 
-            emailRedirectTo: `${window.location.origin}/auth/callback?next=/app`,
+            emailRedirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(redirectTo)}`,
           },
         });
         if (error) throw error;
@@ -78,7 +79,7 @@ function LoginContent() {
           setError("This email is already registered. Try logging in instead.");
         } else if (data.session) {
           // No email confirmation required - auto logged in
-          window.location.href = "/app";
+          window.location.href = redirectTo;
         } else {
           // Email confirmation required
           setSuccess("Check your email for a confirmation link! Click it to complete signup.");

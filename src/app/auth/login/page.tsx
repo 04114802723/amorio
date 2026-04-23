@@ -24,8 +24,22 @@ function LoginContent() {
   // Check for URL error param
   useEffect(() => {
     const urlError = searchParams.get("error");
+    const reason = searchParams.get("reason");
+    const message = searchParams.get("message");
     if (urlError === "auth_failed") {
-      setError("Authentication failed. Please try again or check your email for confirmation link.");
+      setError(
+        reason
+          ? `Authentication failed: ${decodeURIComponent(reason)}`
+          : "Authentication failed. Please try again or check your email for confirmation link."
+      );
+    }
+    if (urlError === "oauth_error") {
+      const parts = [
+        "Google OAuth failed.",
+        reason ? `Reason: ${decodeURIComponent(reason)}.` : "",
+        message ? `Details: ${decodeURIComponent(message)}.` : "",
+      ].filter(Boolean);
+      setError(parts.join(" "));
     }
   }, [searchParams]);
 

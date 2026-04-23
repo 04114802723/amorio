@@ -61,33 +61,49 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     const getSession = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      setSession(session);
-      setUser(session?.user ?? null);
-      
-      if (session?.user) {
-        await fetchProfile(session.user.id);
-        await setOnlineStatus(session.user.id, true);
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        setSession(session);
+        setUser(session?.user ?? null);
+
+        if (session?.user) {
+          await Promise.allSettled([
+            fetchProfile(session.user.id),
+            setOnlineStatus(session.user.id, true),
+          ]);
+        }
+      } catch (err) {
+        console.error("Failed to get session:", err);
+        setSession(null);
+        setUser(null);
+        setProfile(null);
+      } finally {
+        setLoading(false);
       }
-      
-      setLoading(false);
     };
 
     getSession();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
-        setSession(session);
-        setUser(session?.user ?? null);
-        
-        if (session?.user) {
-          await fetchProfile(session.user.id);
-          await setOnlineStatus(session.user.id, true);
-        } else {
+        try {
+          setSession(session);
+          setUser(session?.user ?? null);
+
+          if (session?.user) {
+            await Promise.allSettled([
+              fetchProfile(session.user.id),
+              setOnlineStatus(session.user.id, true),
+            ]);
+          } else {
+            setProfile(null);
+          }
+        } catch (err) {
+          console.error("Auth state change failed:", err);
           setProfile(null);
+        } finally {
+          setLoading(false);
         }
-        
-        setLoading(false);
       }
     );
 
@@ -136,11 +152,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const signOut = async () => {
-    if (user?.id) {
-      await setOnlineStatus(user.id, false);
+    try {
+      if (user?.id) {
+        await setOnlineStatus(user.id, false);
+      }
+    } catch (err) {
+      console.error("Failed to set offline status on sign out:", err);
+    } finally {
+      await supabase.auth.signOut();
+      setSession(null);
+      setUser(null);
+      setProfile(null);
     }
-    await supabase.auth.signOut();
-    setProfile(null);
   };
 
   const updateProfile = async (updates: { display_name?: string; avatar_url?: string }) => {

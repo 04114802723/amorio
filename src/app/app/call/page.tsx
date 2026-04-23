@@ -7,7 +7,7 @@ import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import {
   SkipForward, UserPlus, Mic, MicOff, Video, VideoOff,
-  Sparkles, X, Heart, ThumbsUp, Flame, PartyPopper, Loader2, CheckCircle, Users, MessageCircle, User
+  Sparkles, X, Heart, ThumbsUp, Flame, PartyPopper, Loader2, CheckCircle, Users, MessageCircle, User, RefreshCw
 } from "lucide-react";
 import { useWebRTC } from "@/hooks/useWebRTC";
 import { useAuth } from "@/hooks/useAuth";
@@ -24,6 +24,19 @@ const icebreakers = [
   "What's on your bucket list?",
   "What's the best advice you've ever received?",
   "If you could live anywhere, where would it be?",
+];
+
+const dares = [
+  "Do your best dramatic movie intro in 10 seconds.",
+  "Show one object near you and explain why it matters.",
+  "Speak in a robot voice for your next answer.",
+  "Tell a tiny story using only three sentences.",
+  "Give your best 5-second dance move.",
+  "Say one honest compliment about your call partner.",
+  "Act like a game show host for one question.",
+  "Share a harmless fun fact nobody expects.",
+  "Do a one-word mood check, then explain it.",
+  "Pretend you are narrating a documentary for 15 seconds.",
 ];
 
 const reactionEmojis = [
@@ -46,6 +59,9 @@ function CallPageContent() {
   const [showIcebreaker, setShowIcebreaker] = useState(false);
   const [currentIcebreaker, setCurrentIcebreaker] = useState("");
   const [isSpinning, setIsSpinning] = useState(false);
+  const [showDare, setShowDare] = useState(false);
+  const [currentDare, setCurrentDare] = useState("");
+  const [isDareSpinning, setIsDareSpinning] = useState(false);
   const [friendRequestSent, setFriendRequestSent] = useState(false);
   const [friendRequestReceived, setFriendRequestReceived] = useState(false);
   const [friendshipConfirmed, setFriendshipConfirmed] = useState(false);
@@ -173,6 +189,20 @@ function CallPageContent() {
       if (spins >= maxSpins) {
         clearInterval(interval);
         setIsSpinning(false);
+      }
+    }, 100);
+  };
+
+  const spinDare = () => {
+    setIsDareSpinning(true);
+    let spins = 0;
+    const maxSpins = 12;
+    const interval = setInterval(() => {
+      setCurrentDare(dares[Math.floor(Math.random() * dares.length)]);
+      spins++;
+      if (spins >= maxSpins) {
+        clearInterval(interval);
+        setIsDareSpinning(false);
       }
     }, 100);
   };
@@ -512,6 +542,43 @@ function CallPageContent() {
         )}
       </AnimatePresence>
 
+      {/* Dare Mode */} 
+      <AnimatePresence>
+        {showDare && (
+          <motion.div
+            initial={{ opacity: 0, y: 50 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 50 }}
+            className="mx-4 mb-4"
+          >
+            <div className="glass rounded-2xl p-6 max-w-2xl mx-auto border border-primary-500/20">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <Flame className="w-5 h-5 text-orange-400" />
+                  <span className="text-white font-semibold">Anonymous Dare Mode</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button variant="ghost" size="sm" onClick={spinDare} disabled={isDareSpinning}>
+                    <RefreshCw className="w-4 h-4 mr-1" /> New Dare
+                  </Button>
+                  <button onClick={() => setShowDare(false)} className="text-dark-400 hover:text-white">
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+              </div>
+              <motion.p
+                key={currentDare}
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className={`text-xl text-center ${isDareSpinning ? "text-dark-400" : "text-white"}`}
+              >
+                {currentDare || "Tap New Dare to start challenge mode."}
+              </motion.p>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Controls */}
       <div className="p-4 border-t border-white/10">
         <div className="max-w-4xl mx-auto flex items-center justify-between">
@@ -555,6 +622,19 @@ function CallPageContent() {
               className="w-12 h-12 rounded-full glass flex items-center justify-center text-white"
             >
               <Sparkles className="w-5 h-5" />
+            </motion.button>
+
+            <motion.button
+              whileHover={{ scale: 1.1 }}
+              whileTap={{ scale: 0.9 }}
+              onClick={() => {
+                setShowDare(true);
+                if (!currentDare) spinDare();
+              }}
+              className="w-12 h-12 rounded-full glass flex items-center justify-center text-white"
+              title="Anonymous Dare Mode"
+            >
+              <Flame className="w-5 h-5" />
             </motion.button>
 
             <motion.button

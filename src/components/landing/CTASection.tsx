@@ -8,10 +8,8 @@ import Link from "next/link";
 export function CTASection() {
   return (
     <section className="relative py-32 overflow-hidden">
-      {/* Background */}
       <div className="absolute inset-0 bg-gradient-to-br from-primary-900/20 via-dark-950 to-secondary-900/20" />
 
-      {/* Animated orbs */}
       <motion.div
         animate={{
           scale: [1, 1.2, 1],
@@ -46,10 +44,15 @@ export function CTASection() {
                 <ArrowRight className="w-5 h-5 ml-2" />
               </Button>
             </Link>
+            <Link href="/pricing">
+              <Button variant="secondary" size="lg">
+                Pricing & Waitlist
+              </Button>
+            </Link>
           </div>
 
           <p className="text-dark-500 text-sm mt-8">
-            No signup required to try • 100% Free Forever • No credit card
+            Login required | Free tier available | No credit card
           </p>
         </motion.div>
       </div>

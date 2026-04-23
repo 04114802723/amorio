@@ -4,7 +4,12 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { io, Socket } from "socket.io-client";
 import { createClient } from "@/lib/supabase/client";
 
-const SOCKET_URL = process.env.NEXT_PUBLIC_SOCKET_URL || "http://localhost:3001";
+const rawSocketUrl = process.env.NEXT_PUBLIC_SOCKET_URL?.trim();
+const SOCKET_URL = rawSocketUrl
+  ? /^https?:\/\//i.test(rawSocketUrl)
+    ? rawSocketUrl
+    : `https://${rawSocketUrl}`
+  : "http://localhost:3001";
 
 const ICE_SERVERS = {
   iceServers: [
@@ -58,16 +63,24 @@ export function useWebRTC({
   useEffect(() => {
     socketRef.current = io(SOCKET_URL, {
       transports: ["websocket", "polling"],
+      timeout: 10000,
     });
 
     socketRef.current.on("connect", () => {
       console.log("Connected to signaling server");
       setIsConnected(true);
+      setError(null);
     });
 
     socketRef.current.on("disconnect", () => {
       console.log("Disconnected from signaling server");
       setIsConnected(false);
+    });
+
+    socketRef.current.on("connect_error", (err) => {
+      console.error("Socket connect error:", err.message);
+      setIsConnected(false);
+      setError("Unable to connect to call server. Please try again in a few seconds.");
     });
 
     socketRef.current.on("waiting", () => {
@@ -164,7 +177,14 @@ export function useWebRTC({
       onReaction?.(emoji);
     });
 
+    const connectionTimeout = setTimeout(() => {
+      if (!socketRef.current?.connected) {
+        setError("Call server connection timed out. Check deployment URL and try again.");
+      }
+    }, 12000);
+
     return () => {
+      clearTimeout(connectionTimeout);
       socketRef.current?.disconnect();
       cleanupCall();
     };

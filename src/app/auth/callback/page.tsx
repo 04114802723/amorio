@@ -10,6 +10,10 @@ function CallbackContent() {
   const searchParams = useSearchParams();
 
   useEffect(() => {
+    const redirectTo = (path: string) => {
+      window.location.replace(path);
+    };
+
     const run = async () => {
       const oauthError = searchParams.get("error");
       const oauthErrorDescription = searchParams.get("error_description");
@@ -24,25 +28,36 @@ function CallbackContent() {
         if (oauthErrorDescription) {
           params.set("message", oauthErrorDescription);
         }
-        router.replace(`/auth/login?${params.toString()}`);
+        redirectTo(`/auth/login?${params.toString()}`);
         return;
       }
 
       const code = searchParams.get("code");
       if (!code) {
-        router.replace("/auth/login?error=auth_failed&reason=Missing+authorization+code");
+        redirectTo("/auth/login?error=auth_failed&reason=Missing+authorization+code");
         return;
       }
 
       const supabase = createClient();
-      const { error } = await supabase.auth.exchangeCodeForSession(code);
+      const exchangePromise = supabase.auth.exchangeCodeForSession(code);
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error("OAuth exchange timed out. Please try again.")), 15000);
+      });
+
+      let error: Error | null = null;
+      try {
+        const result = await Promise.race([exchangePromise, timeoutPromise]);
+        error = result.error;
+      } catch (err) {
+        error = err instanceof Error ? err : new Error("OAuth exchange failed");
+      }
 
       if (error) {
-        router.replace(`/auth/login?error=auth_failed&reason=${encodeURIComponent(error.message)}`);
+        redirectTo(`/auth/login?error=auth_failed&reason=${encodeURIComponent(error.message)}`);
         return;
       }
 
-      router.replace(next);
+      redirectTo(next);
     };
 
     run();

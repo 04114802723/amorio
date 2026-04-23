@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { User, Session } from "@supabase/supabase-js";
 
@@ -32,11 +32,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
-  const supabaseRef = useRef(createClient());
-  const supabase = supabaseRef.current;
+  const supabase = createClient();
 
   // Fetch user profile
-  const fetchProfile = useCallback(async (userId: string) => {
+  const fetchProfile = async (userId: string) => {
     const { data, error } = await supabase
       .from("profiles")
       .select("*")
@@ -47,10 +46,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setProfile(data);
     }
     return data;
-  }, [supabase]);
+  };
 
   // Set user online/offline status
-  const setOnlineStatus = useCallback(async (userId: string, isOnline: boolean) => {
+  const setOnlineStatus = async (userId: string, isOnline: boolean) => {
     await supabase
       .from("profiles")
       .update({ 
@@ -58,7 +57,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         last_seen: new Date().toISOString()
       })
       .eq("id", userId);
-  }, [supabase]);
+  };
 
   useEffect(() => {
     const getSession = async () => {
@@ -109,7 +108,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       subscription.unsubscribe();
       window.removeEventListener("beforeunload", handleUnload);
     };
-  }, [fetchProfile, setOnlineStatus, supabase.auth, user?.id]);
+  }, []);
 
   const signInWithGoogle = async () => {
     await supabase.auth.signInWithOAuth({

@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/Button";
 import Link from "next/link";
-import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, Video, MessageCircle, Users, Search, Loader2 } from "lucide-react";
 import { useFriends } from "@/hooks/useDatabase";
@@ -111,7 +110,7 @@ export default function FriendsPage() {
                   <div className="relative">
                     <div className="w-12 h-12 rounded-full bg-gradient-to-br from-primary-500 to-secondary-500 flex items-center justify-center overflow-hidden">
                       {friend.friend_avatar ? (
-                        <Image src={friend.friend_avatar} alt="" width={48} height={48} className="w-full h-full object-cover" />
+                        <img src={friend.friend_avatar} alt="" className="w-full h-full object-cover" />
                       ) : (
                         <span className="text-white font-semibold">
                           {(friend.friend_name || friend.friend_email)[0].toUpperCase()}

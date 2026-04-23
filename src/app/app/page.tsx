@@ -4,7 +4,6 @@ import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/Button";
 import Link from "next/link";
-import Image from "next/image";
 import { Coffee, Brain, Laugh, Zap, Video, ArrowLeft, Users, MessageCircle, LogOut, User } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { useRouter } from "next/navigation";
@@ -82,7 +81,7 @@ export default function AppPage() {
                 className="flex items-center gap-2 text-dark-400 hover:text-white transition-colors"
               >
                 {profile?.avatar_url ? (
-                  <Image src={profile.avatar_url} alt="Profile" width={32} height={32} className="w-8 h-8 rounded-full object-cover" />
+                  <img src={profile.avatar_url} alt="Profile" className="w-8 h-8 rounded-full" />
                 ) : (
                   <div className="w-8 h-8 rounded-full bg-gradient-to-br from-primary-500 to-secondary-500 flex items-center justify-center">
                     <User className="w-4 h-4 text-white" />

@@ -39,18 +39,20 @@ function CallbackContent() {
       }
 
       const supabase = createClient();
+      let timeoutId: ReturnType<typeof setTimeout> | null = null;
       const exchangePromise = supabase.auth.exchangeCodeForSession(code);
-      const timeoutPromise = new Promise<never>((_, reject) => {
-        setTimeout(() => reject(new Error("OAuth exchange timed out. Please try again.")), 15000);
+      const timeoutPromise = new Promise<{ error: Error }>((resolve) => {
+        timeoutId = setTimeout(
+          () => resolve({ error: new Error("OAuth exchange timed out. Please try again.") }),
+          15000
+        );
       });
 
-      let error: Error | null = null;
-      try {
-        const result = await Promise.race([exchangePromise, timeoutPromise]);
-        error = result.error;
-      } catch (err) {
-        error = err instanceof Error ? err : new Error("OAuth exchange failed");
+      const result = await Promise.race([exchangePromise, timeoutPromise]);
+      if (timeoutId) {
+        clearTimeout(timeoutId);
       }
+      const error = result.error ?? null;
 
       if (error) {
         redirectTo(`/auth/login?error=auth_failed&reason=${encodeURIComponent(error.message)}`);

@@ -52,122 +52,17 @@ export function useWebRTC({
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
   const roomIdRef = useRef<string | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
-  const supabase = createClient();
+  const supabaseRef = useRef(createClient());
+  const supabase = supabaseRef.current;
 
-  // Initialize socket connection
-  useEffect(() => {
-    socketRef.current = io(SOCKET_URL, {
-      transports: ["websocket", "polling"],
-    });
-
-    socketRef.current.on("connect", () => {
-      console.log("Connected to signaling server");
-      setIsConnected(true);
-    });
-
-    socketRef.current.on("disconnect", () => {
-      console.log("Disconnected from signaling server");
-      setIsConnected(false);
-    });
-
-    socketRef.current.on("waiting", () => {
-      setIsWaiting(true);
-      setWaitingMessage("Finding your match...");
-    });
-
-    socketRef.current.on("waiting-room", ({ message }) => {
-      setIsWaiting(true);
-      setWaitingMessage(message || "Waiting for your friend to join...");
-    });
-
-    socketRef.current.on("still-waiting", ({ message }) => {
-      console.log("Still waiting:", message);
-      setWaitingMessage(message || "Still searching...");
-    });
-
-    socketRef.current.on("queue-error", ({ message }) => {
-      setError(message || "Could not join matching queue.");
-      setIsWaiting(false);
-    });
-
-    socketRef.current.on("room-error", ({ message }) => {
-      setError(message || "Could not join call room.");
-      setIsWaiting(false);
-    });
-
-    socketRef.current.on("matched", async ({ roomId, isInitiator, partnerUserId: pId, crossVibe }) => {
-      console.log("Matched! Room:", roomId, "Initiator:", isInitiator, "Partner:", pId);
-      roomIdRef.current = roomId;
-      setPartnerUserId(pId || null);
-      setIsWaiting(false);
-      setWaitingMessage("");
-      setIsInCall(true);
-      onMatched?.(pId, crossVibe);
-
-      if (isInitiator) {
-        await createOffer();
-      }
-    });
-
-    socketRef.current.on("cross-vibe-match", ({ originalVibe, matchedVibe }) => {
-      console.log(`Cross-vibe match: ${originalVibe} -> ${matchedVibe}`);
-      onCrossVibeMatch?.(originalVibe, matchedVibe);
-    });
-
-    socketRef.current.on("offer", async ({ offer }) => {
-      console.log("Received offer");
-      await handleOffer(offer);
-    });
-
-    socketRef.current.on("answer", async ({ answer }) => {
-      console.log("Received answer");
-      await handleAnswer(answer);
-    });
-
-    socketRef.current.on("ice-candidate", async ({ candidate }) => {
-      if (peerConnectionRef.current && candidate) {
-        try {
-          await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(candidate));
-        } catch (err) {
-          console.log("Error adding ICE candidate:", err);
-        }
-      }
-    });
-
-    socketRef.current.on("partner-left", () => {
-      console.log("Partner left");
-      cleanupCall();
-      onPartnerLeft?.();
-    });
-
-    socketRef.current.on("friend-request-received", ({ fromUserId }) => {
-      onFriendRequest?.(fromUserId);
-    });
-
-    socketRef.current.on("friendship-confirmed", async ({ user1Id, user2Id }) => {
-      // Save friendship to Supabase
-      if (user1Id && user2Id) {
-        try {
-          await supabase.rpc('create_friendship', {
-            user_a: user1Id,
-            user_b: user2Id
-          });
-          console.log("Friendship saved to database");
-        } catch (err) {
-          console.error("Failed to save friendship:", err);
-        }
-      }
-      onFriendshipConfirmed?.(user1Id, user2Id);
-    });
-
-    socketRef.current.on("reaction", ({ emoji }) => {
-      onReaction?.(emoji);
-    });
-
-    return () => {
-      socketRef.current?.disconnect();
-      cleanupCall();
-    };
+  // Cleanup call
+  const cleanupCall = useCallback(() => {
+    peerConnectionRef.current?.close();
+    peerConnectionRef.current = null;
+    roomIdRef.current = null;
+    setRemoteStream(null);
+    setPartnerUserId(null);
+    setIsInCall(false);
   }, []);
 
   // Get user media
@@ -262,6 +157,133 @@ export function useWebRTC({
     }
   }, []);
 
+  // Initialize socket connection
+  useEffect(() => {
+    socketRef.current = io(SOCKET_URL, {
+      transports: ["websocket", "polling"],
+    });
+
+    socketRef.current.on("connect", () => {
+      console.log("Connected to signaling server");
+      setIsConnected(true);
+    });
+
+    socketRef.current.on("disconnect", () => {
+      console.log("Disconnected from signaling server");
+      setIsConnected(false);
+    });
+
+    socketRef.current.on("waiting", () => {
+      setIsWaiting(true);
+      setWaitingMessage("Finding your match...");
+    });
+
+    socketRef.current.on("waiting-room", ({ message }) => {
+      setIsWaiting(true);
+      setWaitingMessage(message || "Waiting for your friend to join...");
+    });
+
+    socketRef.current.on("still-waiting", ({ message }) => {
+      console.log("Still waiting:", message);
+      setWaitingMessage(message || "Still searching...");
+    });
+
+    socketRef.current.on("queue-error", ({ message }) => {
+      setError(message || "Could not join matching queue.");
+      setIsWaiting(false);
+    });
+
+    socketRef.current.on("room-error", ({ message }) => {
+      setError(message || "Could not join call room.");
+      setIsWaiting(false);
+    });
+
+    socketRef.current.on("matched", async ({ roomId, isInitiator, partnerUserId: pId, crossVibe }) => {
+      console.log("Matched! Room:", roomId, "Initiator:", isInitiator, "Partner:", pId);
+      roomIdRef.current = roomId;
+      setPartnerUserId(pId || null);
+      setIsWaiting(false);
+      setWaitingMessage("");
+      setIsInCall(true);
+      onMatched?.(pId, crossVibe);
+
+      if (isInitiator) {
+        await createOffer();
+      }
+    });
+
+    socketRef.current.on("cross-vibe-match", ({ originalVibe, matchedVibe }) => {
+      console.log(`Cross-vibe match: ${originalVibe} -> ${matchedVibe}`);
+      onCrossVibeMatch?.(originalVibe, matchedVibe);
+    });
+
+    socketRef.current.on("offer", async ({ offer }) => {
+      console.log("Received offer");
+      await handleOffer(offer);
+    });
+
+    socketRef.current.on("answer", async ({ answer }) => {
+      console.log("Received answer");
+      await handleAnswer(answer);
+    });
+
+    socketRef.current.on("ice-candidate", async ({ candidate }) => {
+      if (peerConnectionRef.current && candidate) {
+        try {
+          await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(candidate));
+        } catch (err) {
+          console.log("Error adding ICE candidate:", err);
+        }
+      }
+    });
+
+    socketRef.current.on("partner-left", () => {
+      console.log("Partner left");
+      cleanupCall();
+      onPartnerLeft?.();
+    });
+
+    socketRef.current.on("friend-request-received", ({ fromUserId }) => {
+      onFriendRequest?.(fromUserId);
+    });
+
+    socketRef.current.on("friendship-confirmed", async ({ user1Id, user2Id }) => {
+      if (user1Id && user2Id) {
+        try {
+          await supabase.rpc("create_friendship", {
+            user_a: user1Id,
+            user_b: user2Id,
+          });
+          console.log("Friendship saved to database");
+        } catch (err) {
+          console.error("Failed to save friendship:", err);
+        }
+      }
+      onFriendshipConfirmed?.(user1Id, user2Id);
+    });
+
+    socketRef.current.on("reaction", ({ emoji }) => {
+      onReaction?.(emoji);
+    });
+
+    return () => {
+      socketRef.current?.disconnect();
+      cleanupCall();
+    };
+  }, [
+    cleanupCall,
+    createOffer,
+    handleAnswer,
+    handleOffer,
+    onCrossVibeMatch,
+    onFriendRequest,
+    onFriendshipConfirmed,
+    onMatched,
+    onPartnerLeft,
+    onReaction,
+    supabase,
+  ]);
+
   // Join queue
   const joinQueue = useCallback(async () => {
     try {
@@ -284,16 +306,6 @@ export function useWebRTC({
       console.error("Failed to join call room:", err);
     }
   }, [roomCode, userId, startLocalStream]);
-
-  // Cleanup call
-  const cleanupCall = useCallback(() => {
-    peerConnectionRef.current?.close();
-    peerConnectionRef.current = null;
-    roomIdRef.current = null;
-    setRemoteStream(null);
-    setPartnerUserId(null);
-    setIsInCall(false);
-  }, []);
 
   // Skip current call
   const skip = useCallback(() => {

@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { motion, AnimatePresence } from "framer-motion";
 import { useState, useEffect } from "react";
 import { Menu, X, User, LogOut, Video, MessageCircle } from "lucide-react";
@@ -94,7 +95,7 @@ export function Navbar() {
                       className="flex items-center gap-2 hover:opacity-80 transition-opacity"
                     >
                       {profile?.avatar_url ? (
-                        <img src={profile.avatar_url} alt="Profile" className="w-10 h-10 rounded-full border-2 border-primary-500" />
+                        <Image src={profile.avatar_url} alt="Profile" width={40} height={40} className="w-10 h-10 rounded-full border-2 border-primary-500 object-cover" />
                       ) : (
                         <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary-500 to-secondary-500 flex items-center justify-center border-2 border-primary-500">
                           <User className="w-5 h-5 text-white" />
@@ -201,7 +202,7 @@ export function Navbar() {
                     <>
                       <div className="flex items-center gap-3 py-2 border-t border-white/10">
                         {profile?.avatar_url ? (
-                          <img src={profile.avatar_url} alt="Profile" className="w-8 h-8 rounded-full" />
+                          <Image src={profile.avatar_url} alt="Profile" width={32} height={32} className="w-8 h-8 rounded-full object-cover" />
                         ) : (
                           <div className="w-8 h-8 rounded-full bg-gradient-to-br from-primary-500 to-secondary-500 flex items-center justify-center">
                             <User className="w-4 h-4 text-white" />

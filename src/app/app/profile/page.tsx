@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { motion } from "framer-motion";
 import { ArrowLeft, Loader2, MessageCircle, Video, Users, Mail, User } from "lucide-react";
 import { useRouter } from "next/navigation";
@@ -86,7 +87,7 @@ export default function ProfilePage() {
             <div className="flex items-start gap-4 mb-6">
               <div className="w-16 h-16 rounded-full bg-gradient-to-br from-primary-500 to-secondary-500 flex items-center justify-center overflow-hidden">
                 {avatarUrl ? (
-                  <img src={avatarUrl} alt="Profile" className="w-full h-full object-cover" />
+                  <Image src={avatarUrl} alt="Profile" width={64} height={64} className="w-full h-full object-cover" />
                 ) : (
                   <User className="w-8 h-8 text-white" />
                 )}
@@ -193,7 +194,7 @@ export default function ProfilePage() {
                   <div className="flex items-center gap-3 min-w-0">
                     <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary-500 to-secondary-500 flex items-center justify-center overflow-hidden">
                       {friend.friend_avatar ? (
-                        <img src={friend.friend_avatar} alt="" className="w-full h-full object-cover" />
+                        <Image src={friend.friend_avatar} alt="" width={40} height={40} className="w-full h-full object-cover" />
                       ) : (
                         <span className="text-white font-semibold">
                           {(friend.friend_name || friend.friend_email)[0].toUpperCase()}

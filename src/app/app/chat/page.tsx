@@ -4,6 +4,7 @@ import { useState, useRef, useEffect, Suspense } from "react";
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/Button";
 import Link from "next/link";
+import Image from "next/image";
 import { useSearchParams, useRouter } from "next/navigation";
 import { ArrowLeft, Video, Send, Phone, X, Loader2 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
@@ -134,7 +135,7 @@ function ChatPageContent() {
                 <div className="relative">
                   <div className="w-12 h-12 rounded-full bg-gradient-to-br from-primary-500 to-secondary-500 flex items-center justify-center overflow-hidden">
                     {friend.friend_avatar ? (
-                      <img src={friend.friend_avatar} alt="" className="w-full h-full object-cover" />
+                      <Image src={friend.friend_avatar} alt="" width={48} height={48} className="w-full h-full object-cover" />
                     ) : (
                       <span className="text-white font-semibold">
                         {(friend.friend_name || friend.friend_email)[0].toUpperCase()}
@@ -170,7 +171,7 @@ function ChatPageContent() {
               </button>
               <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary-500 to-secondary-500 flex items-center justify-center overflow-hidden">
                 {selectedFriend.friend_avatar ? (
-                  <img src={selectedFriend.friend_avatar} alt="" className="w-full h-full object-cover" />
+                  <Image src={selectedFriend.friend_avatar} alt="" width={40} height={40} className="w-full h-full object-cover" />
                 ) : (
                   <span className="text-white font-semibold">
                     {(selectedFriend.friend_name || selectedFriend.friend_email)[0].toUpperCase()}

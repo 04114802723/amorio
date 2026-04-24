@@ -3,6 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { User, Session } from "@supabase/supabase-js";
+import { usePathname } from "next/navigation";
 
 interface Profile {
   id: string;
@@ -28,6 +29,7 @@ type AuthContextType = {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname();
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -61,12 +63,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [supabase]);
 
   useEffect(() => {
+    if (pathname === "/auth/callback") {
+      setLoading(false);
+      return;
+    }
+
+    let isActive = true;
+
     const getSession = async () => {
       try {
-        const { data: { session } } = await supabase.auth.getSession();
+        setLoading(true);
+        const { data: { session }, error } = await supabase.auth.getSession();
+        if (error) {
+          throw error;
+        }
+
+        if (!isActive) return;
+
         setSession(session);
         setUser(session?.user ?? null);
-
         if (session?.user) {
           await Promise.allSettled([
             fetchProfile(session.user.id),
@@ -75,11 +90,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
       } catch (err) {
         console.error("Failed to get session:", err);
+        if (!isActive) return;
         setSession(null);
         setUser(null);
         setProfile(null);
       } finally {
-        setLoading(false);
+        if (isActive) {
+          setLoading(false);
+        }
       }
     };
 
@@ -88,6 +106,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
         try {
+          if (!isActive) return;
           setSession(session);
           setUser(session?.user ?? null);
 
@@ -103,29 +122,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           console.error("Auth state change failed:", err);
           setProfile(null);
         } finally {
-          setLoading(false);
+          if (isActive) {
+            setLoading(false);
+          }
         }
       }
     );
 
-    // Set offline on page unload
-    const handleUnload = () => {
-      if (user?.id) {
-        // Using sendBeacon for reliability on page close
-        navigator.sendBeacon(
-          `${process.env.NEXT_PUBLIC_SUPABASE_URL}/rest/v1/profiles?id=eq.${user.id}`,
-          JSON.stringify({ is_online: false, last_seen: new Date().toISOString() })
-        );
-      }
-    };
-
-    window.addEventListener("beforeunload", handleUnload);
-
     return () => {
+      isActive = false;
       subscription.unsubscribe();
-      window.removeEventListener("beforeunload", handleUnload);
     };
-  }, [fetchProfile, setOnlineStatus, supabase, user?.id]);
+  }, [fetchProfile, pathname, setOnlineStatus, supabase]);
 
   const signInWithGoogle = async () => {
     await supabase.auth.signInWithOAuth({

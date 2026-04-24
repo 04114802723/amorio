@@ -44,7 +44,7 @@ function CallbackContent() {
       const timeoutPromise = new Promise<{ error: Error }>((resolve) => {
         timeoutId = setTimeout(
           () => resolve({ error: new Error("OAuth exchange timed out. Please try again.") }),
-          15000
+          30000
         );
       });
 
